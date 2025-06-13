@@ -2,29 +2,30 @@
 
 ## The easy way
 
-Install the pre-compiled version from GitHub:
+Install the package from PyPI. Choose the backend that suits your workflow:
 
 ```bash
-$ pip install carabiner-tools
+$ pip install duvida[jax]
+# or
+$ pip install duvida[jax_cuda12]     # for CUDA 12 GPU support
+# or
+$ pip install duvida[jax_cuda12_local]
+# or
+$ pip install duvida[torch]
 ```
 
-If you want to use the `tensorflow`, `pandas`, or `matplotlib` utilities, these must be installed separately
-or together:
+For chemistry specific tools, install with the `chem` extras:
 
 ```bash
-$ pip install carabiner-tools[deep]
-# or
-$ pip install carabiner-tools[pd]
-# or
-$ pip install carabiner-tools[mpl]
-# or
-$ pip install carabiner-tools[all]
+$ pip install duvida[chem]
 ```
 
 ## From source
 
-Clone the repository, then `cd` into it. Then run:
+Clone the repository and install in editable mode:
 
 ```bash
-pip install -e .
+$ git clone https://github.com/scbirlab/duvida.git
+$ cd duvida
+$ pip install -e .[torch]
 ```
