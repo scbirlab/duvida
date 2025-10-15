@@ -20,4 +20,4 @@ from .stateless.information import (
     parameter_hessian_diagonal,
     information_sensitivity
 )
-import .stateless.numpy as numpy
+from .stateless import numpy
