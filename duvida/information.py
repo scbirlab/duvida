@@ -411,7 +411,7 @@ def information_sensitivity(
 
     Examples
     --------    
-    >>> from duvida.stateless.config import config
+    >>> from duvida.config import config
     >>> model = lambda x, p1, p2: x ** p1 + p2
     >>> mse_fn = lambda ypred, ytrue: dnp.sum(dnp.square(ypred - ytrue))
     >>> x = dnp.array([1., 2.])

@@ -20,3 +20,4 @@ from .information import (
     parameter_hessian_diagonal,
     information_sensitivity
 )
+from .utils import *

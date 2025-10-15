@@ -84,7 +84,7 @@ def squared_jacobian(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
+    >>> from duvida.utils import hessian
     >>> import duvida.numpy as dnp  
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
@@ -133,7 +133,7 @@ def exact_diagonal(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
+    >>> from duvida.utils import hessian
     >>> import duvida.numpy as dnp  
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
@@ -205,7 +205,7 @@ def bekas(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
+    >>> from duvida.utils import hessian
     >>> import duvida.numpy as dnp  
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
@@ -285,7 +285,7 @@ def rough_finite_difference(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
+    >>> from duvida.utils import hessian
     >>> import duvida.numpy as dnp 
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
