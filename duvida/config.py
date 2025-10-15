@@ -6,6 +6,8 @@ import importlib
 import logging
 import os
 
+from carabiner import print_err
+
 _BACKEND_FLAG: str = "DUVIDA_BACKEND"
 _PRECISION_FLAG: str = "DUVIDA_PRECISION"
 
@@ -115,3 +117,13 @@ class Config:
 
 
 config = Config()
+try:
+    config.set_backend('jax', precision='float')
+except ImportError:
+    print_err("JAX not installed, trying to fall back to torch...")
+    try:
+        config.set_backend('torch', precision='float')
+    except ImportError as e:
+        raise e
+    else:
+        print_err("Duvida using torch backend.")
