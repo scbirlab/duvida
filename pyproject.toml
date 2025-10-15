@@ -67,4 +67,4 @@ requires = ["setuptools>=43.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [test]
-deps = ["pytest>=7.4", "pytest-cov", "duvida[torch]"] 
+deps = ["pytest>=7.4", "pytest-cov", "duvida[jax,torch]"] 
