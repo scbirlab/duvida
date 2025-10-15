@@ -1,10 +1,10 @@
 [project]
 name = "duvida"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
   { name="Eachan Johnson", email="eachan.johnson@crick.ac.uk" },
 ]
-description = "Calculating exact and approximate confidence and information metrics for deep learning on general purpose and chemistry tasks."
+description = "Calculating exact and approximate confidence and information metrics for differentiable functions."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -34,8 +34,6 @@ classifiers = [
 
 dependencies = [
   "carabiner-tools[pd,mpl]>=0.0.4",
-  "datasets>=2.15.0",
-  "huggingface_hub",
   "numpy",
   "tqdm",
 ]
