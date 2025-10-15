@@ -56,7 +56,7 @@ elif config.backend == 'torch':
 
         Examples
         ========
-        >>> import duvida.stateless.numpy as dnp
+        >>> import duvida.numpy as dnp
         >>> double = lambda z: z * 2
         >>> vmap(double)(dnp.array([1., 2., 3.])).tolist()
         [2.0, 4.0, 6.0]
@@ -134,7 +134,7 @@ elif config.backend == 'torch':
 
         Examples
         --------
-        >>> import duvida.stateless.numpy as dnp
+        >>> import duvida.numpy as dnp
         >>> flat, unravel = ravel_pytree([dnp.ones((2,)), dnp.zeros((3,))])
         >>> flat.shape
         (5,)

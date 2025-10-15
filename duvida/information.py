@@ -31,7 +31,7 @@ def parameter_gradient(model: StatelessModel) -> Callable[[ArrayLike, ArrayLike]
 
     Examples
     --------    
-    >>> import duvida.stateless.numpy as dnp
+    >>> import duvida.numpy as dnp
     >>> f = lambda x, p1, p2: x ** p1 + p2
     >>> x = dnp.array([1., 2.])
     >>> p = dnp.array([2., 1.])
@@ -84,7 +84,7 @@ def parameter_hessian_diagonal(
 
     Examples
     --------    
-    >>> import duvida.stateless.numpy as dnp 
+    >>> import duvida.numpy as dnp 
     >>> f = lambda x, p1, p2: x ** p1 + p2
     >>> x = dnp.array([1., 2.])
     >>> p = dnp.array([2., 1.])
@@ -201,7 +201,7 @@ def fisher_score(
 
     Examples
     --------   
-    >>> import duvida.stateless.numpy as dnp  
+    >>> import duvida.numpy as dnp  
     >>> model = lambda x, p1, p2: x ** p1 + p2
     >>> mse_fn = lambda ypred, ytrue: dnp.sum(dnp.square(ypred - ytrue))
     >>> x = dnp.array([1., 2.])
@@ -250,7 +250,7 @@ def fisher_information_diagonal(
 
     Examples
     --------    
-    >>> import duvida.stateless.numpy as dnp  
+    >>> import duvida.numpy as dnp  
     >>> model = lambda x, p1, p2: x ** p1 + p2
     >>> mse_fn = lambda ypred, ytrue: dnp.sum(dnp.square(ypred - ytrue))
     >>> x = dnp.array([1., 2.])
@@ -302,7 +302,7 @@ def doubtscore(
 
     Examples
     --------   
-    >>> import duvida.stateless.numpy as dnp   
+    >>> import duvida.numpy as dnp   
     >>> model = lambda x, p1, p2: x ** p1 + p2
     >>> mse_fn = lambda ypred, ytrue: dnp.sum(dnp.square(ypred - ytrue))
     >>> x = dnp.array([1., 2.])

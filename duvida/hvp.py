@@ -42,7 +42,7 @@ def hvp(
     >>> from duvida.config import config
     >>> config.set_backend("jax", precision="double")
     >>> from duvida.utils import grad, hessian
-    >>> import duvida.stateless.numpy as dnp 
+    >>> import duvida.numpy as dnp 
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
     >>> f(a)
