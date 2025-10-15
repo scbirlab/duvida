@@ -5,7 +5,7 @@ from functools import partial
 
 from .hessians import _DEFAULT_APPROXIMATOR, get_approximators
 from .numpy import numpy as dnp
-from .typing import Array, ArrayLike, LossFunction, StatelessModel
+from .types import Array, ArrayLike, LossFunction, StatelessModel
 from .utils import reciprocal, grad, jit, vmap
 
 

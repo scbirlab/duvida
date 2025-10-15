@@ -37,4 +37,4 @@ jobs:
       run: |
         export JAX_PLATFORM_NAME=cpu
         # run doctests as individual packages
-        pytest duvida/stateless --doctest-modules
+        pytest duvida --doctest-modules

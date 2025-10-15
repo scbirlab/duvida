@@ -4,7 +4,7 @@ from typing import Callable
 from functools import partial
 
 from .numpy import numpy as dnp
-from .typing import Array, ArrayLike
+from .types import Array, ArrayLike
 from .utils import grad, jvp
 
 
