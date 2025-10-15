@@ -4,7 +4,7 @@ from typing import Callable
 from functools import partial
 
 from .numpy import numpy as dnp
-from .typing import Array, ArrayLike
+from .types import Array, ArrayLike
 from .utils import grad, jvp
 
 
@@ -39,10 +39,10 @@ def hvp(
 
     Examples
     --------
-    >>> from duvida.stateless.config import config
+    >>> from duvida.config import config
     >>> config.set_backend("jax", precision="double")
-    >>> from duvida.stateless.utils import grad, hessian
-    >>> import duvida.stateless.numpy as dnp 
+    >>> from duvida.utils import grad, hessian
+    >>> import duvida.numpy as dnp 
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
     >>> f(a)

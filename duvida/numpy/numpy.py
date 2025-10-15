@@ -1,7 +1,7 @@
 """Very rough backend-agnostic NumPy API."""
 
 from ..config import config
-from ..typing import Array, ArrayLike
+from ..types import Array, ArrayLike
 
 __backend__ = config.backend
 

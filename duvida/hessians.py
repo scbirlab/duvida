@@ -5,9 +5,9 @@ from typing import Any, Callable, Dict, Optional, Tuple, Union
 from functools import partial
 
 from .hvp import hvp
-from .numpy import numpy as dnp
-from .typing import Approximator, Array
+from .types import Approximator, Array
 from .utils import grad, random_normal, vmap, get_eps
+from .numpy import numpy as dnp
 
 _EPS = get_eps() ** .5
 _DEFAULT_APPROXIMATOR = 'exact_diagonal'
@@ -84,8 +84,8 @@ def squared_jacobian(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
-    >>> import duvida.stateless.numpy as dnp 
+    >>> from duvida.utils import hessian
+    >>> import duvida.numpy as dnp  
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
     >>> f(a)
@@ -133,8 +133,8 @@ def exact_diagonal(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
-    >>> import duvida.stateless.numpy as dnp 
+    >>> from duvida.utils import hessian
+    >>> import duvida.numpy as dnp  
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
     >>> exact_diagonal(f)(a) == dnp.diag(hessian(f)(a))
@@ -205,8 +205,8 @@ def bekas(
 
     Examples
     --------
-    >>> from duvida.stateless.utils import hessian
-    >>> import duvida.stateless.numpy as dnp 
+    >>> from duvida.utils import hessian
+    >>> import duvida.numpy as dnp  
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
     >>> f(a)
@@ -285,10 +285,8 @@ def rough_finite_difference(
 
     Examples
     --------
-    >>> from duvida.stateless.config import config
-    >>> config.set_backend("jax", precision="double")
-    >>> from duvida.stateless.utils import hessian
-    >>> import duvida.stateless.numpy as dnp 
+    >>> from duvida.utils import hessian
+    >>> import duvida.numpy as dnp 
     >>> f = lambda x: dnp.sum(x ** 3. + x ** 2. + 4.)
     >>> a = dnp.array([1., 2.])
     >>> f(a)
