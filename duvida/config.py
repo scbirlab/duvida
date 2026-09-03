@@ -32,12 +32,15 @@ class Config:
     ) -> None:
         """Set the autodiff backend for duvida.
 
+        Backend selection must occur before importing backend-dependent Duvida modules. 
+        Changing the backend of an already-imported Duvida package is unsupported.
+
         Examples
         --------
-        >>> config.set_backend("jax", precision="double"); config
-        Config(backend='jax', precision='double')
-        >>> config.set_backend("torch", precision="float"); config
-        Config(backend='torch', precision='float')
+        >>> config.backend in ("jax", "torch")
+        True
+        >>> config.precision in ("double", "float", "half")
+        True
         
         """
         if backend is not None:
@@ -116,14 +119,30 @@ class Config:
         return None
 
 
+requested_backend = os.getenv(
+    _BACKEND_FLAG
+)
+
 config = Config()
+
 try:
-    config.set_backend('jax', precision='float')
+    config.set_backend()
 except ImportError:
-    print_err("JAX not installed, trying to fall back to torch...")
-    try:
-        config.set_backend('torch', precision='float')
-    except ImportError as e:
-        raise e
-    else:
-        print_err("Duvida using torch backend.")
+    if requested_backend is not None:
+        raise
+
+    fallback = (
+        "torch"
+        if config.backend == "jax"
+        else "jax"
+    )
+
+    print_err(
+        f"{config.backend} not installed, "
+        f"trying to fall back to {fallback}..."
+    )
+
+    config.set_backend(
+        fallback,
+        precision=config.precision,
+    )

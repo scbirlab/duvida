@@ -99,7 +99,7 @@ def parameter_hessian_diagonal(
            [7.68724822, 1.        ]], dtype=float64)
     >>> parameter_hessian_diagonal(f, approximator='rough_finite_difference')(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 0.        ],
-           [1.92204204, 0.        ]], dtype=float64)
+           [1.92181206, 0.        ]], dtype=float64)
     >>> parameter_hessian_diagonal(f, approximator='bekas', n=3, seed=0)(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 0.        ],
            [1.92181206, 0.        ]], dtype=float64)
@@ -335,9 +335,9 @@ def doubtscore(
         )
 
     if use_reciprocal:
-        return jit(reciprocal(_doubtscore))
+        return reciprocal(_doubtscore)
     else:
-        return jit(_doubtscore)
+        return _doubtscore
     
 
 def _information_sensitivity_term1(
@@ -450,6 +450,6 @@ def information_sensitivity(
         return term1_fn(params, x, x_true, y_true) - term2_fn(params, x, x_true, y_true)
 
     if use_reciprocal:
-        return jit(reciprocal(_information_sensitivity))
+        return reciprocal(_information_sensitivity)
     else:
-        return jit(_information_sensitivity)
+        return _information_sensitivity

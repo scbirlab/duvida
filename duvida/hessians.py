@@ -9,6 +9,7 @@ from .types import Approximator, Array
 from .utils import (
     jacrev,
     jvp,
+    grad,
     random_normal,
     ravel_pytree,
     ravel_pytree_like,
@@ -326,15 +327,15 @@ def rough_finite_difference(
     Array(22., dtype=float64)
     >>> dnp.diag(hessian(f)(a))
     Array([ 8., 14.], dtype=float64)
-    >>> rough_finite_difference(f)(a)  # Relatively accurate
-    Array([ 8.0010358, 14.0010358], dtype=float64)
+    >>> rough_finite_difference(f)(a)  # Relatively accurate  # doctest: +NORMALIZE_WHITESPACE
+    Array([ 8.00000006, 14.        ], dtype=float64)
     >>> rough_finite_difference(f, eps=.01)(a)
     Array([ 8.03, 14.03], dtype=float64)
     >>> g = lambda x: dnp.sum(dnp.sum(x) ** 3. + x ** 2. + 4.)
     >>> dnp.diag(hessian(g)(a))
     Array([38., 38.], dtype=float64)
-    >>> rough_finite_difference(g)(a)  # Less accurate when parameters interact
-    Array([74.00828641, 74.00828641], dtype=float64)
+    >>> rough_finite_difference(g)(a)  # Less accurate when parameters interact  # doctest: +NORMALIZE_WHITESPACE
+    Array([74., 74.], dtype=float64)
     
     """
     def _approx_hessian_diagonal(

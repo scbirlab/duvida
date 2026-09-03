@@ -38,8 +38,9 @@ jobs:
         export JAX_PLATFORM_NAME=cpu
         # run doctests as individual packages
         pytest duvida --doctest-modules
-    - name: Test with pytest
+    - name: Test with pytest - torch
       run: |
-        export JAX_PLATFORM_NAME=cpu
-        # run doctests as individual packages
-        pytest duvida -vv test
+        DUVIDA_BACKEND=jax pytest duvida -vv test
+    - name: Test with pytest - jax
+      run: |
+        DUVIDA_BACKEND=torch pytest duvida -vv test
