@@ -7,7 +7,7 @@ import operator
 from .hessians import _DEFAULT_APPROXIMATOR, get_approximators
 from .numpy import numpy as dnp
 from .types import Array, ArrayLike, LossFunction, StatelessModel
-from .utils import reciprocal, grad, jacrev, jit, vmap
+from .utils import reciprocal, grad, jacrev, jit, tree_map, vmap
 
 
 def parameter_gradient(
@@ -390,7 +390,7 @@ def _information_sensitivity_term2(
             _mapping_fn,
             fisher_score_fn(params, x_true, y_true),
             param_hessian_fn(params, x),
-            dnp.square(param_grad_fn(params, x)),
+            param_grad_fn(params, x),
         )
 
     return _term2
