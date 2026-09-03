@@ -19,6 +19,7 @@ if config.backend == 'jax':
         expand_dims, ones, ones_like, roll, sum, sqrt, square, stack,
         split as jax_split,
         take as jax_take,
+        zeros,
         zeros_like
     )
     from jax.nn import one_hot as jax_one_hot

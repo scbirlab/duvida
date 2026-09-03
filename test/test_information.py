@@ -148,7 +148,7 @@ def test_information_sensitivity_preserves_parameter_pytree():
 
     x = dnp.array([1.5, 2.5])
 
-    y_true = dnp.zeros(3, 2)
+    y_true = dnp.zeros((3, 2))
 
     observed = information_sensitivity(
         model,
