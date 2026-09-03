@@ -1,12 +1,12 @@
 [project]
 name = "duvida"
-version = "0.0.3.post1"
+version = "0.0.4"
 authors = [
   { name="Eachan Johnson", email="eachan.johnson@crick.ac.uk" },
 ]
 description = "Calculating exact and approximate confidence and information metrics for differentiable functions."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 keywords = [
   "ai",
@@ -27,10 +27,10 @@ classifiers = [
 
   "License :: OSI Approved :: MIT License",
 
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3 :: Only",
 ]
 
@@ -41,11 +41,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-#tf = ["duvida", "tensorflow"]
 jax = ["jax>=0.5.3"]
 jax_cuda12 = ["jax[cuda12]>=0.5.3"]
 jax_cuda12_local = ["jax[cuda12_local]>=0.5.3"]
-torch = ["torch>=2.4", "torchvision", "lightning", "tensorboard"]
+torch = ["torch>=2.4"]
+dev = ["pytest>=7.4", "pytest-cov", "duvida[jax,torch]"]
 
 [project.urls]
 "Homepage" = "https://github.com/scbirlab/duvida"
