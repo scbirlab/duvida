@@ -233,8 +233,11 @@ def reciprocal(f: Callable[[ArrayLike], Array]) -> Callable[[ArrayLike], Array]:
 
     """
 
+    def _inverter(x):
+        return 1. / x
+
     def _inverted(*args, **kwargs):
-        return 1. / f(*args, **kwargs)
+        return tree_map(_inverter, f(*args, **kwargs))
 
     return _inverted
 

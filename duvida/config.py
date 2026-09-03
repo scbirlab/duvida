@@ -67,20 +67,12 @@ class Config:
 
     @staticmethod
     def _set_precision_torch(precision: str) -> None:
-        from torch import set_default_dtype  # , set_default_device
-        # set_default_device('cuda' if torch.cuda.is_available() else 'cpu')
-        if precision == 'double':
-            from torch import float64
-            return set_default_dtype(float64)
-        elif precision == 'float':
-            from torch import float32
-            return set_default_dtype(float32)
-        elif precision == 'half':
-            from torch import float16
-            return set_default_dtype(float16)
-        else:
+        if precision not in {
+            "double",
+            "float",
+            "half",
+        }:
             raise ValueError(f"Precision '{precision}' not valid.")
-        log.debug(f"torch precision set to {precision}")
 
     def _set_precision(self) -> None:
         if self.backend_installed:

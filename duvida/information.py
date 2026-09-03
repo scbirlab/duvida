@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from functools import partial
+import operator
 
 from .hessians import _DEFAULT_APPROXIMATOR, get_approximators
 from .numpy import numpy as dnp
@@ -329,9 +330,10 @@ def doubtscore(
 
     def _doubtscore(params: ArrayLike, x: ArrayLike, 
                     x_true: ArrayLike, y_true: ArrayLike) -> Array:
-        return (
-            fisher_score_fn(params, x_true, y_true) 
-            / param_grad_fn(params, x)
+        return tree_map(
+            operator.truediv,
+            fisher_score_fn(params, x_true, y_true),
+            param_grad_fn(params, x),
         )
 
     if use_reciprocal:
@@ -352,7 +354,11 @@ def _information_sensitivity_term1(
 
     def _term1(params: ArrayLike, x: ArrayLike, 
                x_true: ArrayLike, y_true: ArrayLike) -> Array:
-        return fisher_info_fn(params, x_true, y_true) / param_grad_fn(params, x)
+        return tree_map(
+            operator.truediv,
+            fisher_info_fn(params, x_true, y_true),
+            param_grad_fn(params, x),
+        )
 
     return _term1
 
@@ -365,8 +371,14 @@ def _information_sensitivity_term2(
 ) -> Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], Array]:
     fisher_score_fn = fisher_score(model, loss)
     param_grad_fn = parameter_gradient(model)
-    param_hessian_fn = parameter_hessian_diagonal(model, approximator, 
-                                                  *args, **kwargs)
+    param_hessian_fn = parameter_hessian_diagonal(
+        model, approximator, 
+        *args, 
+        **kwargs,
+    )
+
+    def _mapping_fn(score, hessian, gradient):
+        return score * hessian / dnp.square(gradient)
 
     def _term2(
         params: ArrayLike, 
@@ -374,8 +386,12 @@ def _information_sensitivity_term2(
         x_true: ArrayLike, 
         y_true: ArrayLike
     ) -> Array:
-        return (fisher_score_fn(params, x_true, y_true) * param_hessian_fn(params, x)
-                / dnp.square(param_grad_fn(params, x)))
+        return tree_map(
+            _mapping_fn,
+            fisher_score_fn(params, x_true, y_true),
+            param_hessian_fn(params, x),
+            dnp.square(param_grad_fn(params, x)),
+        )
 
     return _term2
 
@@ -447,7 +463,11 @@ def information_sensitivity(
         x_true: ArrayLike, 
         y_true: ArrayLike
     ) -> Array:
-        return term1_fn(params, x, x_true, y_true) - term2_fn(params, x, x_true, y_true)
+        return tree_map(
+            operator.sub,
+            term1_fn(params, x, x_true, y_true),
+            term2_fn(params, x, x_true, y_true),
+        )
 
     if use_reciprocal:
         return reciprocal(_information_sensitivity)
