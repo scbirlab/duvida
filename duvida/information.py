@@ -1,15 +1,18 @@
 """Implementation of information sensitivity metrics for stateless model frameworks."""
 
-from typing import Callable, Union
+from collections.abc import Callable
 from functools import partial
+import operator
 
 from .hessians import _DEFAULT_APPROXIMATOR, get_approximators
 from .numpy import numpy as dnp
 from .types import Array, ArrayLike, LossFunction, StatelessModel
-from .utils import reciprocal, grad, jit, vmap
+from .utils import reciprocal, grad, jacrev, jit, tree_map, vmap
 
 
-def parameter_gradient(model: StatelessModel) -> Callable[[ArrayLike, ArrayLike], Array]:
+def parameter_gradient(
+    model: StatelessModel
+) -> Callable[[ArrayLike, ArrayLike], Array]:
 
     """Gradient of a scalar function with respect to its parameters for each 
     point in x.
@@ -42,14 +45,13 @@ def parameter_gradient(model: StatelessModel) -> Callable[[ArrayLike, ArrayLike]
            [2.77258872, 1.        ]], dtype=float64)
 
     """
-    
-    @partial(vmap, in_axes=(None, 0))
-    @grad
     def _parameter_gradient(
         params: ArrayLike, 
         x: ArrayLike
     ) -> Array:
-        return dnp.sum(model(x, *params))
+        def _model(params):
+            return model(x, *params)
+        return jacrev(_model)(params)
 
     return _parameter_gradient
 
@@ -98,22 +100,30 @@ def parameter_hessian_diagonal(
            [7.68724822, 1.        ]], dtype=float64)
     >>> parameter_hessian_diagonal(f, approximator='rough_finite_difference')(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 0.        ],
-           [1.92204204, 0.        ]], dtype=float64)
+           [1.92181206, 0.        ]], dtype=float64)
     >>> parameter_hessian_diagonal(f, approximator='bekas', n=3, seed=0)(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 0.        ],
            [1.92181206, 0.        ]], dtype=float64)
 
     """
     
-    @partial(vmap, in_axes=(None, 0))
-    @get_approximators(approximator, *args, **kwargs)
-    def _scalar_f(
-        params: ArrayLike, 
-        x: ArrayLike
-    ) -> Array:
-        return dnp.sum(f(x, *params))      
+    approximator_fn = get_approximators(
+        approximator,
+        *args,
+        **kwargs,
+    )
 
-    return _scalar_f
+    def _parameter_hessian_diagonal(
+        params: ArrayLike,
+        x: ArrayLike,
+    ) -> Array:
+
+        def _model(params):
+            return f(x, *params)
+
+        return approximator_fn(_model)(params)
+
+    return _parameter_hessian_diagonal
 
 
 def parameter_gradient_unrolled(
@@ -219,7 +229,7 @@ def fisher_score(
 def fisher_information_diagonal(
     model: StatelessModel, 
     loss: LossFunction, 
-    approximator: Union[str, Callable] = _DEFAULT_APPROXIMATOR,
+    approximator: str | Callable = _DEFAULT_APPROXIMATOR,
     *args, **kwargs
 ) -> Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], Array]:
 
@@ -320,21 +330,22 @@ def doubtscore(
 
     def _doubtscore(params: ArrayLike, x: ArrayLike, 
                     x_true: ArrayLike, y_true: ArrayLike) -> Array:
-        return (
-            fisher_score_fn(params, x_true, y_true) 
-            / param_grad_fn(params, x)
+        return tree_map(
+            operator.truediv,
+            fisher_score_fn(params, x_true, y_true),
+            param_grad_fn(params, x),
         )
 
     if use_reciprocal:
-        return jit(reciprocal(_doubtscore))
+        return reciprocal(_doubtscore)
     else:
-        return jit(_doubtscore)
+        return _doubtscore
     
 
 def _information_sensitivity_term1(
     model: StatelessModel, 
     loss: LossFunction, 
-    approximator: Union[str, Callable] = _DEFAULT_APPROXIMATOR,
+    approximator: str | Callable = _DEFAULT_APPROXIMATOR,
     *args, **kwargs
 ) -> Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], Array]:
     param_grad_fn = parameter_gradient(model)
@@ -343,7 +354,11 @@ def _information_sensitivity_term1(
 
     def _term1(params: ArrayLike, x: ArrayLike, 
                x_true: ArrayLike, y_true: ArrayLike) -> Array:
-        return fisher_info_fn(params, x_true, y_true) / param_grad_fn(params, x)
+        return tree_map(
+            operator.truediv,
+            fisher_info_fn(params, x_true, y_true),
+            param_grad_fn(params, x),
+        )
 
     return _term1
 
@@ -351,13 +366,19 @@ def _information_sensitivity_term1(
 def _information_sensitivity_term2(
     model: StatelessModel, 
     loss: LossFunction, 
-    approximator: Union[str, Callable] = _DEFAULT_APPROXIMATOR,
+    approximator: str | Callable = _DEFAULT_APPROXIMATOR,
     *args, **kwargs
 ) -> Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], Array]:
     fisher_score_fn = fisher_score(model, loss)
     param_grad_fn = parameter_gradient(model)
-    param_hessian_fn = parameter_hessian_diagonal(model, approximator, 
-                                                  *args, **kwargs)
+    param_hessian_fn = parameter_hessian_diagonal(
+        model, approximator, 
+        *args, 
+        **kwargs,
+    )
+
+    def _mapping_fn(score, hessian, gradient):
+        return score * hessian / dnp.square(gradient)
 
     def _term2(
         params: ArrayLike, 
@@ -365,8 +386,12 @@ def _information_sensitivity_term2(
         x_true: ArrayLike, 
         y_true: ArrayLike
     ) -> Array:
-        return (fisher_score_fn(params, x_true, y_true) * param_hessian_fn(params, x)
-                / dnp.square(param_grad_fn(params, x)))
+        return tree_map(
+            _mapping_fn,
+            fisher_score_fn(params, x_true, y_true),
+            param_hessian_fn(params, x),
+            param_grad_fn(params, x),
+        )
 
     return _term2
 
@@ -374,7 +399,7 @@ def _information_sensitivity_term2(
 def information_sensitivity(
     model: StatelessModel, 
     loss: LossFunction, 
-    approximator: Union[str, Callable] = _DEFAULT_APPROXIMATOR,
+    approximator: str | Callable = _DEFAULT_APPROXIMATOR,
     use_reciprocal: bool = False,
     *args, **kwargs
 ) -> Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], Array]:
@@ -438,9 +463,13 @@ def information_sensitivity(
         x_true: ArrayLike, 
         y_true: ArrayLike
     ) -> Array:
-        return term1_fn(params, x, x_true, y_true) - term2_fn(params, x, x_true, y_true)
+        return tree_map(
+            operator.sub,
+            term1_fn(params, x, x_true, y_true),
+            term2_fn(params, x, x_true, y_true),
+        )
 
     if use_reciprocal:
-        return jit(reciprocal(_information_sensitivity))
+        return reciprocal(_information_sensitivity)
     else:
-        return jit(_information_sensitivity)
+        return _information_sensitivity

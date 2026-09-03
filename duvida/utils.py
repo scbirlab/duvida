@@ -1,7 +1,8 @@
 """Generic utilities for JAX and PyTorch."""
 
-from typing import Callable, Iterable, Union
+from collections.abc import Callable, Iterable
 from functools import partial
+from itertools import accumulate
 
 from carabiner import print_err
 
@@ -10,11 +11,33 @@ from .types import Array, ArrayLike
 
 __backend__ = config.backend
 
-if config.backend == 'jax':
-    from jax import jit, jvp, grad, hessian, random, vmap
-    from jax.flatten_util import ravel_pytree
+if __backend__ == 'jax':
+    from jax import (
+        grad,
+        hessian,
+        jacrev,
+        jit,
+        jvp,
+        random,
+        vmap
+    )
+    from jax.numpy import (
+        concatenate,
+        split
+    )
+    from jax.tree_util import (
+        tree_flatten,
+        tree_map,
+        tree_unflatten as jax_tree_unflatten,
+    )
 
-    def random_normal(seed: int, device=None) -> Callable:
+    def tree_unflatten(spec, leaves):
+        return jax_tree_unflatten(spec, leaves)
+
+    def random_normal(
+        seed: int, 
+        device=None
+    ) -> Callable:
         """Generate a sample from the Normal distribution.
 
         Examples
@@ -33,23 +56,50 @@ if config.backend == 'jax':
                 *args, **kwargs
             )
         return _normal
+        
 
-elif config.backend == 'torch':
+elif __backend__ == 'torch':
+
     from functools import wraps
     from torch import concat as concatenate, compile, normal, zeros, Generator, split
     from torch.random import manual_seed
-    from torch.func import jvp, grad, hessian, vmap as vmap_torch
-    from torch.utils._pytree import tree_flatten, tree_unflatten
+    from torch.func import (
+        jacrev as jacrev_torch, 
+        jvp, 
+        grad, 
+        hessian, 
+        vmap as vmap_torch
+    )
+    from torch.utils._pytree import (
+        tree_flatten,
+        tree_map,
+        tree_unflatten as torch_tree_unflatten,
+    )
     from torch._dynamo import config as dynamo_config
     dynamo_config.suppress_errors = True
     dynamo_config.capture_scalar_outputs = True
 
     _COMPILE_WARNINGS = set()
 
+
+    def tree_unflatten(spec, leaves):
+        return torch_tree_unflatten(leaves, spec)
+
+    def jacrev(
+        f: Callable, 
+        *args, **kwargs
+    ) -> Callable:
+        return jacrev_torch(
+            f,
+            chunk_size=1,
+            *args,
+            **kwargs,
+        )
+
     def vmap(
         f: Callable, 
-        in_axes: Union[int, Iterable[int]] = 0, 
-        out_axes: Union[int, Iterable[int]] = 0, 
+        in_axes: int | Iterable[int] = 0, 
+        out_axes: int | Iterable[int] = 0, 
         *args, **kwargs
     ) -> Callable:
         """Vectorizes function over axis of its arguments.
@@ -124,6 +174,7 @@ elif config.backend == 'torch':
 
         return _normal
 
+
     def ravel_pytree(params):
         """Torch pytree flattener.
 
@@ -182,8 +233,11 @@ def reciprocal(f: Callable[[ArrayLike], Array]) -> Callable[[ArrayLike], Array]:
 
     """
 
+    def _inverter(x):
+        return 1. / x
+
     def _inverted(*args, **kwargs):
-        return 1. / f(*args, **kwargs)
+        return tree_map(_inverter, f(*args, **kwargs))
 
     return _inverted
 
@@ -207,3 +261,118 @@ def get_eps():
             return as_tensor(x)
             
     return converter(finfo(converter(1.).dtype).eps)
+
+
+
+def ravel_pytree(params):
+    """Flatten a pytree while preserving leading dimensions on unravel."""
+
+    from .numpy import numpy as dnp
+
+    leaves, spec = tree_flatten(params)
+
+    sizes = [dnp.get_array_size(leaf) for leaf in leaves]
+
+    flat = dnp.concatenate([
+        leaf.reshape(-1)
+        for leaf in leaves
+    ])
+
+    def unravel(vec):
+        chunks = dnp.split(
+            vec,
+            sizes,
+            axis=-1,
+        )
+        leading_shape = dnp.get_array_shape(vec)[:-1]
+        rebuilt = [
+            chunk.reshape(
+                *leading_shape,
+                *dnp.get_array_shape(leaf),
+            )
+            for chunk, leaf
+            in zip(chunks, leaves)
+        ]
+
+        return tree_unflatten(
+            spec,
+            rebuilt,
+        )
+
+    return flat, unravel
+
+
+def ravel_arg(
+    f: Callable,
+    args,
+    argnums: int = 0,
+    kwargs=None
+):
+    """Flatten one pytree argument of a function."""
+    if kwargs is None:
+        kwargs = {}
+    args = tuple(args)
+
+    flat_arg, unravel = ravel_pytree(args[argnums])
+
+    def flat_f(flat_arg):
+        f_args = list(args)
+        f_args[argnums] = unravel(flat_arg)
+        return f(*f_args, **kwargs)
+
+    return flat_f, flat_arg, unravel
+
+
+def ravel_pytree_like(
+    pytree,
+    reference
+):
+    """Ravel pytree parameter dimensions while preserving leading dimensions."""
+
+    from .numpy import numpy as dnp
+
+    leaves, spec = tree_flatten(pytree)
+    reference_leaves, reference_spec = tree_flatten(reference)
+
+    if spec != reference_spec:
+        raise ValueError(
+            "Pytree and reference must have the same structure."
+        )
+
+    leading_shape = None
+    flat_leaves = []
+
+    for leaf, reference_leaf in zip(
+        leaves,
+        reference_leaves,
+    ):
+        leaf_shape = dnp.get_array_shape(leaf)
+        reference_shape = dnp.get_array_shape(reference_leaf)
+        reference_size = dnp.get_array_size(reference_leaf)
+
+        if reference_shape:
+            if leaf_shape[-len(reference_shape):] != reference_shape:
+                raise ValueError(
+                    "Pytree leaf trailing dimensions must match "
+                    "the corresponding reference leaf."
+                )
+
+            leaf_leading_shape = leaf_shape[:-len(reference_shape)]
+        else:
+            leaf_leading_shape = leaf_shape
+
+        if leading_shape is None:
+            leading_shape = leaf_leading_shape
+        elif leaf_leading_shape != leading_shape:
+            raise ValueError(
+                "Pytree leaves must have the same leading dimensions."
+            )
+
+        flat_leaves.append(
+            leaf.reshape(
+                *leaf_leading_shape,
+                reference_size,
+            )
+        )
+
+    return dnp.concatenate(flat_leaves, axis=-1)

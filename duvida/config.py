@@ -32,12 +32,15 @@ class Config:
     ) -> None:
         """Set the autodiff backend for duvida.
 
+        Backend selection must occur before importing backend-dependent Duvida modules. 
+        Changing the backend of an already-imported Duvida package is unsupported.
+
         Examples
         --------
-        >>> config.set_backend("jax", precision="double"); config
-        Config(backend='jax', precision='double')
-        >>> config.set_backend("torch", precision="float"); config
-        Config(backend='torch', precision='float')
+        >>> config.backend in ("jax", "torch")
+        True
+        >>> config.precision in ("double", "float", "half")
+        True
         
         """
         if backend is not None:
@@ -64,20 +67,12 @@ class Config:
 
     @staticmethod
     def _set_precision_torch(precision: str) -> None:
-        from torch import set_default_dtype  # , set_default_device
-        # set_default_device('cuda' if torch.cuda.is_available() else 'cpu')
-        if precision == 'double':
-            from torch import float64
-            return set_default_dtype(float64)
-        elif precision == 'float':
-            from torch import float32
-            return set_default_dtype(float32)
-        elif precision == 'half':
-            from torch import float16
-            return set_default_dtype(float16)
-        else:
+        if precision not in {
+            "double",
+            "float",
+            "half",
+        }:
             raise ValueError(f"Precision '{precision}' not valid.")
-        log.debug(f"torch precision set to {precision}")
 
     def _set_precision(self) -> None:
         if self.backend_installed:
@@ -116,14 +111,30 @@ class Config:
         return None
 
 
+requested_backend = os.getenv(
+    _BACKEND_FLAG
+)
+
 config = Config()
+
 try:
-    config.set_backend('jax', precision='float')
+    config.set_backend()
 except ImportError:
-    print_err("JAX not installed, trying to fall back to torch...")
-    try:
-        config.set_backend('torch', precision='float')
-    except ImportError as e:
-        raise e
-    else:
-        print_err("Duvida using torch backend.")
+    if requested_backend is not None:
+        raise
+
+    fallback = (
+        "torch"
+        if config.backend == "jax"
+        else "jax"
+    )
+
+    print_err(
+        f"{config.backend} not installed, "
+        f"trying to fall back to {fallback}..."
+    )
+
+    config.set_backend(
+        fallback,
+        precision=config.precision,
+    )

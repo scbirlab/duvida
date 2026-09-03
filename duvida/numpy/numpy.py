@@ -1,17 +1,25 @@
 """Very rough backend-agnostic NumPy API."""
 
+from collections.abc import Iterable
+
 from ..config import config
 from ..types import Array, ArrayLike
 
 __backend__ = config.backend
 
 if config.backend == 'jax':
+    from itertools import accumulate
     from jax.numpy import (
         float64, int64, 
-        allclose, 
+        allclose,
+        all,
         arange as jax_arange, 
-        asarray, array, concatenate, diag, 
-        expand_dims, ones, ones_like, roll, sum, sqrt, square, take, zeros,
+        asarray, array, concatenate, diag,
+        isfinite,
+        expand_dims, ones, ones_like, roll, sum, sqrt, square, stack,
+        split as jax_split,
+        take as jax_take,
+        zeros,
         zeros_like
     )
     from jax.nn import one_hot as jax_one_hot
@@ -34,18 +42,39 @@ if config.backend == 'jax':
     def one_hot(tensor: ArrayLike, num_classes: int = -1, device: str = 'cpu') -> Array:
         return dtype_like(jax_one_hot(tensor, num_classes), 1.)
 
+    def split(tensor: ArrayLike, split_size_or_sections: int | Iterable[int], axis: int = 0) -> Array:
+        split_points = list(accumulate(split_size_or_sections))[:-1]
+        return jax_split(tensor, split_points, axis=axis)
+
+    def take(
+        a: ArrayLike,
+        indices: ArrayLike,
+        axis: int | None = None,
+    ) -> Array:
+        return jax_take(
+            a,
+            indices,
+            axis=axis,
+        )
+
 else:
     from torch import (
         float64, int64, 
         as_tensor as asarray, 
         Tensor as array, 
         arange, 
-        allclose, 
+        allclose,
+        all,
         concat as concatenate, 
         diag, numel, 
         ones, ones_like, 
-        roll, sum, sqrt, square, take, 
-        zeros, zeros_like
+        isfinite,
+        roll, stack, sum, sqrt, square,
+        split as torch_split,
+        take as torch_take,
+        take_along_dim,
+        zeros as zeros_torch, 
+        zeros_like
     )
     from torch.nn.functional import one_hot as torch_one_hot
 
@@ -57,7 +86,7 @@ else:
         a_copy[i] = x
         return a_copy
 
-    def unsqueeze(a: ArrayLike, axis: int) -> Array:
+    def unsqueeze(a: ArrayLike, axis: int = 0) -> Array:
         return asarray(a).unsqueeze(axis)
     
     def dtype_like(a: ArrayLike, b: ArrayLike) -> Array:
@@ -65,3 +94,32 @@ else:
 
     def one_hot(tensor: ArrayLike, num_classes: int = -1, device: str = 'cpu') -> Array:
         return dtype_like(torch_one_hot(tensor, num_classes), 1.).to(device)
+
+    def split(tensor: ArrayLike, split_size_or_sections: int | Iterable[int], axis: int = 0) -> Array:
+        return torch_split(tensor, split_size_or_sections, dim=axis)
+
+    def take(
+        a: ArrayLike,
+        indices: ArrayLike,
+        axis: int | None = None,
+    ) -> Array:
+
+        a = asarray(a)
+        if axis is None:
+            return torch_take(a, asarray(indices))
+
+        indices = asarray(indices)
+
+        index_shape = (1,) * (a.ndim - 1) + (1,)
+        indices = indices.reshape(index_shape).expand(
+            *a.shape[:-1],
+            1,
+        )
+        return take_along_dim(a, indices, dim=axis).squeeze(axis)
+
+    def zeros(shape, *args, **kwargs):
+        return zeros_torch(*shape, *args, **kwargs)
+
+
+def get_array_shape(a: ArrayLike):
+        return tuple(int(i) for i in a.shape)

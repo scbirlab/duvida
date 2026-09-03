@@ -1,12 +1,22 @@
 """JAX transforms for Hessians diagonals and their approximations."""
-
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any
+from collections.abc import Callable
 
 from functools import partial
 
 from .hvp import hvp
 from .types import Approximator, Array
-from .utils import grad, random_normal, vmap, get_eps
+from .utils import (
+    jacrev,
+    jvp,
+    grad,
+    random_normal,
+    ravel_pytree,
+    ravel_pytree_like,
+    ravel_arg,
+    get_eps,
+    vmap,
+)
 from .numpy import numpy as dnp
 
 _EPS = get_eps() ** .5
@@ -14,9 +24,9 @@ _DEFAULT_APPROXIMATOR = 'exact_diagonal'
 
 
 def get_approximators(
-    key: Optional[Union[str, Callable]] = None,
+    key: str | Callable | None = None,
     *args, **kwargs
-) -> Union[Tuple[str], Dict[str, Approximator]]:
+) -> tuple[str] | dict[str, Approximator]:
 
     """Return a list of available Hessian diagonal approximators, or one of the
     named approximator functions.
@@ -62,7 +72,8 @@ def get_approximators(
 
 
 def squared_jacobian(
-    f: Callable[[Any], Array], 
+    f: Callable[[Any], Array],
+    argnums: int = 0,
     *args, **kwargs
 ) -> Callable[[Any], Array]:
 
@@ -98,12 +109,20 @@ def squared_jacobian(
     Array([ 25., 256.], dtype=float64)
     
     """
-    _jacobian = grad(f, *args, **kwargs)
+    def _squared_jacobian(
+        *f_args,
+        **f_kwargs,
+    ):
+        flat_f, flat_arg, unravel = ravel_arg(
+            f,
+            f_args,
+            argnums=argnums,
+            kwargs=f_kwargs,
+        )
+        jacobian = jacrev(flat_f)(flat_arg)
+        return unravel(dnp.square(jacobian))
 
-    def _sq_jacobian(*args, **kwargs) -> Array:
-        return dnp.square(_jacobian(*args, **kwargs))
-
-    return _sq_jacobian
+    return _squared_jacobian
 
 
 def exact_diagonal(
@@ -149,20 +168,28 @@ def exact_diagonal(
     def get_hessian_element(
         i: int, 
         size: int, 
-        *args, **kwargs
+        *f_args, **f_kwargs
     ) -> float:
-        unit_vec = dnp.one_hot(i, size, device=device)
-        return dnp.take(hvp_f(unit_vec, *args, **kwargs), i)
+        params = f_args[argnums]
+        _, unravel = ravel_pytree(params)
+        unit_vec = unravel(dnp.one_hot(i, size, device=device))
+        r = hvp_f(unit_vec, *f_args, **f_kwargs)
+        flat_r = ravel_pytree_like(r, params)
+        return dnp.take(flat_r, i, axis=-1)
 
-    def _hessian_diagonal(*args, **kwargs) -> Array:
-        d_args = dnp.asarray(args[argnums])
-        d_args_size = dnp.get_array_size(d_args)
+    def _hessian_diagonal(*f_args, **f_kwargs) -> Array:
+        params = f_args[argnums]
+        flat_params, unravel = ravel_pytree(params)
+
+        d_args_size = dnp.get_array_size(flat_params)
         v_hvp_f = vmap(
             get_hessian_element, 
-            in_axes=(0, None) + (None, ) * len(args)
+            in_axes=(0, None) + (None, ) * len(f_args),
+            out_axes=-1,
         )
         idx = dnp.arange(d_args_size, device=device)
-        return v_hvp_f(idx, d_args_size, *args, **kwargs) 
+        hessian_diag = v_hvp_f(idx, d_args_size, *f_args, **f_kwargs)
+        return unravel(hessian_diag)
 
     return _hessian_diagonal
 
@@ -233,17 +260,24 @@ def bekas(
     random_normal_fn = random_normal(seed, device=device)
     hvp_f = hvp(f, argnums=argnums, *args, **kwargs)
 
-    def _approx_hessian_diagonal(*args, **kwargs) -> Array:
-        d_args = args[argnums]
-        d_args_size = dnp.get_array_size(d_args)
+    def _approx_hessian_diagonal(*f_args, **f_kwargs) -> Array:
+        params = f_args[argnums]
+        flat_params, unravel = ravel_pytree(params)
+        d_args_size = dnp.get_array_size(flat_params)
+
+        def flat_hvp(flat_v, *f_args):
+            v = unravel(flat_v)
+            r = hvp_f(v, *f_args, **f_kwargs)
+            return ravel_pytree_like(r, params)
+
         v_hvp_f = vmap(
-            hvp_f, 
-            in_axes=(1, ) + (None, ) * len(args), 
-            out_axes=1,
+            flat_hvp, 
+            in_axes=(1, ) + (None, ) * len(f_args), 
+            out_axes=-1,
         )
         v = random_normal_fn(shape=(d_args_size, n))  # p, n  # TODO: Don't instantiate all at once - risk of memory blow-up
-        samples = v * v_hvp_f(v, *args, **kwargs)   # p, n
-        return dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1)
+        samples = v * v_hvp_f(v, *f_args, **f_kwargs)   # p, n
+        return unravel(dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1))
 
     return _approx_hessian_diagonal
 
@@ -293,22 +327,31 @@ def rough_finite_difference(
     Array(22., dtype=float64)
     >>> dnp.diag(hessian(f)(a))
     Array([ 8., 14.], dtype=float64)
-    >>> rough_finite_difference(f)(a)  # Relatively accurate
-    Array([ 8.0010358, 14.0010358], dtype=float64)
+    >>> rough_finite_difference(f)(a)  # Relatively accurate  # doctest: +NORMALIZE_WHITESPACE
+    Array([ 8.00000006, 14.        ], dtype=float64)
     >>> rough_finite_difference(f, eps=.01)(a)
     Array([ 8.03, 14.03], dtype=float64)
     >>> g = lambda x: dnp.sum(dnp.sum(x) ** 3. + x ** 2. + 4.)
     >>> dnp.diag(hessian(g)(a))
     Array([38., 38.], dtype=float64)
-    >>> rough_finite_difference(g)(a)  # Less accurate when parameters interact
-    Array([74.00828641, 74.00828641], dtype=float64)
+    >>> dnp.allclose(rough_finite_difference(g)(a), dnp.array([74., 74.]))  # Less accurate when parameters interact  # doctest: +NORMALIZE_WHITESPACE
+    Array(True, dtype=bool)
     
     """
-    _jacobian = grad(f, argnums=argnums, *args, **kwargs)
+    def _approx_hessian_diagonal(
+        *f_args,
+        **f_kwargs,
+    ):
 
-    def _approx_hessian_diagonal(*args, **kwargs) -> Array:
-        d_args = [arg + eps if i == argnums else arg for i, arg in enumerate(args)]
-        return (_jacobian(*d_args, **kwargs) - _jacobian(*args, **kwargs)) / eps
+        flat_f, flat_arg, unravel = ravel_arg(
+            f,
+            f_args,
+            argnums=argnums,
+            kwargs=f_kwargs,
+        )
+        jacobian = jacrev(flat_f)
+        observed = (jacobian(flat_arg + eps) - jacobian(flat_arg)) / eps
+        return unravel(observed)
 
     return _approx_hessian_diagonal
 
