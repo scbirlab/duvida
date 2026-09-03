@@ -264,14 +264,19 @@ def bekas(
         flat_params, unravel = ravel_pytree(params)
         d_args_size = dnp.get_array_size(flat_params)
 
+        def flat_hvp(flat_v, *f_args):
+            v = unravel(flat_v)
+            r = hvp_f(v, *f_args, **f_kwargs)
+            return ravel_pytree_like(r, params)
+
         v_hvp_f = vmap(
-            hvp_f, 
-            in_axes=(1, ) + (None, ) * len(args), 
+            flat_hvp, 
+            in_axes=(1, ) + (None, ) * len(f_args), 
             out_axes=-1,
         )
         v = random_normal_fn(shape=(d_args_size, n))  # p, n  # TODO: Don't instantiate all at once - risk of memory blow-up
         samples = v * v_hvp_f(v, *f_args, **f_kwargs)   # p, n
-        return ravel_pytree_like(dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1), params)
+        return unravel(dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1))
 
     return _approx_hessian_diagonal
 

@@ -343,29 +343,18 @@ def ravel_pytree_like(
         leaves,
         reference_leaves,
     ):
-        leaf_shape = dnp.get_array_shape(
-            leaf
-        )
-        reference_shape = dnp.get_array_shape(
-            reference_leaf
-        )
-        reference_size = dnp.get_array_size(
-            reference_leaf
-        )
+        leaf_shape = dnp.get_array_shape(leaf)
+        reference_shape = dnp.get_array_shape(reference_leaf)
+        reference_size = dnp.get_array_size(reference_leaf)
 
         if reference_shape:
-            if (
-                leaf_shape[-len(reference_shape):]
-                != reference_shape
-            ):
+            if leaf_shape[-len(reference_shape):] != reference_shape:
                 raise ValueError(
                     "Pytree leaf trailing dimensions must match "
                     "the corresponding reference leaf."
                 )
 
-            leaf_leading_shape = (
-                leaf_shape[:-len(reference_shape)]
-            )
+            leaf_leading_shape = leaf_shape[:-len(reference_shape)]
         else:
             leaf_leading_shape = leaf_shape
 
@@ -383,7 +372,4 @@ def ravel_pytree_like(
             )
         )
 
-    return dnp.concatenate(
-        flat_leaves,
-        axis=-1,
-    )
+    return dnp.concatenate(flat_leaves, axis=-1)
