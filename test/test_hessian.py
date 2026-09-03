@@ -13,28 +13,13 @@ def test_parameter_hessian_preserves_output_dimensions():
             axis=-1,
         )
 
-    x = dnp.array([
-        1.,
-        2.,
-        3.,
-    ])
+    x = dnp.array([1., 2., 3.])
 
-    params = dnp.array([
-        2.,
-    ])
+    params = dnp.array([2.])
 
-    observed = parameter_hessian_diagonal(
-        model
-    )(
-        params,
-        x,
-    )
+    observed = parameter_hessian_diagonal(model)(params, x)
 
-    assert observed.shape == (
-        3,
-        2,
-        1,
-    )
+    assert observed.shape == (3, 2, 1)
 
     expected = dnp.stack(
         (
@@ -44,10 +29,7 @@ def test_parameter_hessian_preserves_output_dimensions():
         axis=-1,
     )[..., None]
 
-    assert dnp.allclose(
-        observed,
-        expected,
-    )
+    assert dnp.allclose(observed, expected)
 
 
 def test_parameter_hessian_preserves_param_dimensions():
@@ -174,13 +156,7 @@ def test_hessian_approximators_accept_parameter_pytree():
     from duvida.hessians import get_approximators
 
     def model(params):
-
-        return (
-            params["left"] ** 3
-            + dnp.sum(
-                params["right"] ** 3
-            )
-        )
+        return params["left"] ** 3 + dnp.sum(params["right"] ** 3)
 
     params = {
         "left": dnp.array([
@@ -193,25 +169,8 @@ def test_hessian_approximators_accept_parameter_pytree():
     }
 
     for name in get_approximators():
+        observed = get_approximators(name)(model)(params)
 
-        observed = get_approximators(
-            name
-        )(
-            model
-        )(
-            params
-        )
-
-        assert set(observed) == {
-            "left",
-            "right",
-        }
-
-        assert observed["left"].shape == (
-            1,
-        )
-
-        assert observed["right"].shape == (
-            1,
-            2,
-        )
+        assert set(observed) == {"left", "right"}
+        assert observed["left"].shape == (1, 1)
+        assert observed["right"].shape == (1, 2)

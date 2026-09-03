@@ -166,10 +166,14 @@ def exact_diagonal(
     def get_hessian_element(
         i: int, 
         size: int, 
-        *args, **kwargs
+        *f_args, **f_kwargs
     ) -> float:
-        unit_vec = dnp.one_hot(i, size, device=device)
-        return dnp.take(hvp_f(unit_vec, *args, **kwargs), i)
+        params = f_args[argnums]
+        _, unravel = ravel_pytree(params)
+        unit_vec = unravel(dnp.one_hot(i, size, device=device))
+        r = hvp_f(unit_vec, *args, **kwargs)
+        flat_r = ravel_pytree(r)
+        return dnp.take(flat_r, i)
 
     def _hessian_diagonal(*f_args, **f_kwargs) -> Array:
         params = f_args[argnums]
@@ -178,13 +182,12 @@ def exact_diagonal(
         d_args_size = dnp.get_array_size(flat_params)
         v_hvp_f = vmap(
             get_hessian_element, 
-            in_axes=(0, None) + (None, ) * len(args),
+            in_axes=(0, None) + (None, ) * len(f_args),
             out_axes=-1,
         )
         idx = dnp.arange(d_args_size, device=device)
-        hessian_diag = v_hvp_f(idx, d_args_size, *args, **kwargs)
+        hessian_diag = v_hvp_f(idx, d_args_size, *f_args, **f_kwargs)
         return unravel(hessian_diag)
-
 
     return _hessian_diagonal
 
@@ -257,14 +260,16 @@ def bekas(
 
     def _approx_hessian_diagonal(*f_args, **f_kwargs) -> Array:
         params = f_args[argnums]
-        d_args_size = dnp.get_array_size(params)
+        flat_params, unravel = ravel_pytree(params)
+        d_args_size = dnp.get_array_size(flat_params)
+
         v_hvp_f = vmap(
             hvp_f, 
             in_axes=(1, ) + (None, ) * len(args), 
             out_axes=-1,
         )
         v = random_normal_fn(shape=(d_args_size, n))  # p, n  # TODO: Don't instantiate all at once - risk of memory blow-up
-        samples = v * v_hvp_f(v, *args, **kwargs)   # p, n
+        samples = v * v_hvp_f(v, *f_args, **f_kwargs)   # p, n
         return dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1)
 
     return _approx_hessian_diagonal

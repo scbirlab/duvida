@@ -76,7 +76,7 @@ def hvp(
         )
 
         flat_v, _ = ravel_pytree(v)
-        if dnp.get_array_shape(flat_v) != get_array_shape(flat_arg).shape:
+        if dnp.get_array_shape(flat_v) != dnp.get_array_shape(flat_arg):
             raise ValueError(
                 "HVP vector must have the same flattened "
                 "shape as the differentiated argument."

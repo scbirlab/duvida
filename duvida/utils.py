@@ -27,8 +27,12 @@ if __backend__ == 'jax':
     )
     from jax.tree_util import (
         tree_flatten,
-        tree_unflatten,
+        tree_map,
+        tree_unflatten as jax_tree_unflatten,
     )
+
+    def tree_unflatten(spec, leaves):
+        return jax_tree_unflatten(spec, leaves)
 
     def random_normal(
         seed: int, 
@@ -60,19 +64,26 @@ elif __backend__ == 'torch':
     from torch import concat as concatenate, compile, normal, zeros, Generator, split
     from torch.random import manual_seed
     from torch.func import (
-        jacrev, 
+        jacrev as jacrev_torch, 
         jvp, 
         grad, 
         hessian, 
         vmap as vmap_torch
     )
-    from torch.utils._pytree import tree_flatten, tree_unflatten
+    from torch.utils._pytree import (
+        tree_flatten,
+        tree_map,
+        tree_unflatten as torch_tree_unflatten,
+    )
     from torch._dynamo import config as dynamo_config
     dynamo_config.suppress_errors = True
     dynamo_config.capture_scalar_outputs = True
 
     _COMPILE_WARNINGS = set()
 
+
+    def tree_unflatten(spec, leaves):
+        return torch_tree_unflatten(leaves, spec)
 
     def jacrev(
         f: Callable, 

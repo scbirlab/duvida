@@ -41,7 +41,7 @@ if config.backend == 'jax':
         return dtype_like(jax_one_hot(tensor, num_classes), 1.)
 
     def split(tensor: ArrayLike, split_size_or_sections: int | Iterable[int], axis: int = 0) -> Array:
-        split_points = list(accumulate(split_size_or_sections))
+        split_points = list(accumulate(split_size_or_sections))[:-1]
         return jax_split(tensor, split_points, axis=axis)
 
 
