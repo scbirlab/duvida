@@ -18,8 +18,7 @@ if config.backend == 'jax':
         isfinite,
         expand_dims, ones, ones_like, roll, sum, sqrt, square, stack,
         split as jax_split,
-        take as jax_take, 
-        zeros,
+        take as jax_take,
         zeros_like
     )
     from jax.nn import one_hot as jax_one_hot
@@ -73,7 +72,8 @@ else:
         split as torch_split,
         take as torch_take,
         take_along_dim,
-        zeros, zeros_like
+        zeros as zeros_torch, 
+        zeros_like
     )
     from torch.nn.functional import one_hot as torch_one_hot
 
@@ -115,6 +115,9 @@ else:
             1,
         )
         return take_along_dim(a, indices, dim=axis).squeeze(axis)
+
+    def zeros(shape, *args, **kwargs):
+        return zeros_torch(*shape, *args, **kwargs)
 
 
 def get_array_shape(a: ArrayLike):

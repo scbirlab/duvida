@@ -20,7 +20,7 @@ def test_fisher_score_preserves_parameter_pytree():
 
     x = dnp.array([1., 2., 3.])
 
-    target = dnp.zeros(3, 2)
+    target = dnp.zeros((3, 2))
 
     observed = fisher_score(model, loss)(
         (params,),
@@ -59,7 +59,7 @@ def test_fisher_information_preserves_parameter_pytree():
 
     x = dnp.array([1., 2., 3.])
 
-    target = dnp.zeros(3, 2)
+    target = dnp.zeros((3, 2))
     observed = fisher_information_diagonal(model, loss)(
         (params,),
         x,
@@ -99,7 +99,7 @@ def test_doubtscore_preserves_parameter_pytree():
 
     x = dnp.array([1.5, 2.5])
 
-    y_true = dnp.zeros(3, 2)
+    y_true = dnp.zeros((3, 2))
   
     observed = doubtscore(model, loss)(
         (params,),
