@@ -62,8 +62,9 @@ def get_approximators(
         try:
             return partial(APPROXIMATORS[key], *args, **kwargs)
         except KeyError:
-            NotImplementedError(
-                f"Approximator called '{key}' is not implemented. Choose from {', '.join(sorted(APPROXIMATORS))}"
+            raise NotImplementedError(
+                f"Approximator called '{key}' is not implemented. "
+                f"Choose from {', '.join(sorted(APPROXIMATORS))}"
             )
     elif isinstance(key, Callable):
         return key
