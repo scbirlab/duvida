@@ -45,7 +45,7 @@ jax = ["jax>=0.5.3"]
 jax_cuda12 = ["jax[cuda12]>=0.5.3"]
 jax_cuda12_local = ["jax[cuda12_local]>=0.5.3"]
 torch = ["torch>=2.4"]
-dev = ["pytest>=7.4", "pytest-cov", "duvida[torch]"]
+dev = ["pytest>=7.4", "pytest-cov", "duvida[torch,jax]"]
 
 [project.urls]
 "Homepage" = "https://github.com/scbirlab/duvida"
@@ -67,4 +67,9 @@ requires = ["setuptools>=43.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [test]
-deps = ["pytest>=7.4", "pytest-cov", "duvida[jax]"] 
+deps = ["pytest>=7.4", "pytest-cov", "duvida[jax,torch]"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:`torch\\.jit\\.script` is deprecated.*:FutureWarning:torch\\.jit\\._script",
+]
