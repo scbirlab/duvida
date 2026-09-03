@@ -11,6 +11,7 @@ from .utils import (
     jvp,
     random_normal,
     ravel_pytree,
+    ravel_pytree_like,
     ravel_arg,
     get_eps,
     vmap,
@@ -171,9 +172,9 @@ def exact_diagonal(
         params = f_args[argnums]
         _, unravel = ravel_pytree(params)
         unit_vec = unravel(dnp.one_hot(i, size, device=device))
-        r = hvp_f(unit_vec, *args, **kwargs)
-        flat_r = ravel_pytree(r)
-        return dnp.take(flat_r, i)
+        r = hvp_f(unit_vec, *f_args, **f_kwargs)
+        flat_r = ravel_pytree_like(r, params)
+        return dnp.take(flat_r, i, axis=-1)
 
     def _hessian_diagonal(*f_args, **f_kwargs) -> Array:
         params = f_args[argnums]
@@ -270,7 +271,7 @@ def bekas(
         )
         v = random_normal_fn(shape=(d_args_size, n))  # p, n  # TODO: Don't instantiate all at once - risk of memory blow-up
         samples = v * v_hvp_f(v, *f_args, **f_kwargs)   # p, n
-        return dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1)
+        return ravel_pytree_like(dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1), params)
 
     return _approx_hessian_diagonal
 

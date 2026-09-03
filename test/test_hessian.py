@@ -6,10 +6,7 @@ def test_parameter_hessian_preserves_output_dimensions():
 
     def model(x, weight):
         return dnp.stack(
-            (
-                x * weight ** 2,
-                x * weight ** 3,
-            ),
+            (x * weight ** 2, x * weight ** 3),
             axis=-1,
         )
 
@@ -22,10 +19,7 @@ def test_parameter_hessian_preserves_output_dimensions():
     assert observed.shape == (3, 2, 1)
 
     expected = dnp.stack(
-        (
-            2. * x,
-            6. * params * x,
-        ),
+        (2. * x, 6. * params * x),
         axis=-1,
     )[..., None]
 

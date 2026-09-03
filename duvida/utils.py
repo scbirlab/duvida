@@ -318,3 +318,72 @@ def ravel_arg(
         return f(*f_args, **kwargs)
 
     return flat_f, flat_arg, unravel
+
+
+def ravel_pytree_like(
+    pytree,
+    reference
+):
+    """Ravel pytree parameter dimensions while preserving leading dimensions."""
+
+    from .numpy import numpy as dnp
+
+    leaves, spec = tree_flatten(pytree)
+    reference_leaves, reference_spec = tree_flatten(reference)
+
+    if spec != reference_spec:
+        raise ValueError(
+            "Pytree and reference must have the same structure."
+        )
+
+    leading_shape = None
+    flat_leaves = []
+
+    for leaf, reference_leaf in zip(
+        leaves,
+        reference_leaves,
+    ):
+        leaf_shape = dnp.get_array_shape(
+            leaf
+        )
+        reference_shape = dnp.get_array_shape(
+            reference_leaf
+        )
+        reference_size = dnp.get_array_size(
+            reference_leaf
+        )
+
+        if reference_shape:
+            if (
+                leaf_shape[-len(reference_shape):]
+                != reference_shape
+            ):
+                raise ValueError(
+                    "Pytree leaf trailing dimensions must match "
+                    "the corresponding reference leaf."
+                )
+
+            leaf_leading_shape = (
+                leaf_shape[:-len(reference_shape)]
+            )
+        else:
+            leaf_leading_shape = leaf_shape
+
+        if leading_shape is None:
+            leading_shape = leaf_leading_shape
+        elif leaf_leading_shape != leading_shape:
+            raise ValueError(
+                "Pytree leaves must have the same leading dimensions."
+            )
+
+        flat_leaves.append(
+            leaf.reshape(
+                *leaf_leading_shape,
+                reference_size,
+            )
+        )
+
+    return dnp.concatenate(
+        flat_leaves,
+        axis=-1,
+    )

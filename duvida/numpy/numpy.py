@@ -16,7 +16,7 @@ if config.backend == 'jax':
         asarray, array, concatenate, diag, 
         expand_dims, ones, ones_like, roll, sum, sqrt, square, stack,
         split as jax_split,
-        take, 
+        take as jax_take, 
         zeros,
         zeros_like
     )
@@ -44,6 +44,16 @@ if config.backend == 'jax':
         split_points = list(accumulate(split_size_or_sections))[:-1]
         return jax_split(tensor, split_points, axis=axis)
 
+    def take(
+        a: ArrayLike,
+        indices: ArrayLike,
+        axis: int | None = None,
+    ) -> Array:
+        return jax_take(
+            a,
+            indices,
+            axis=axis,
+        )
 
 else:
     from torch import (
@@ -57,7 +67,8 @@ else:
         ones, ones_like, 
         roll, stack, sum, sqrt, square,
         split as torch_split,
-        take, 
+        take as torch_take,
+        take_along_dim,
         zeros, zeros_like
     )
     from torch.nn.functional import one_hot as torch_one_hot
@@ -81,6 +92,25 @@ else:
 
     def split(tensor: ArrayLike, split_size_or_sections: int | Iterable[int], axis: int = 0) -> Array:
         return torch_split(tensor, split_size_or_sections, dim=axis)
+
+    def take(
+        a: ArrayLike,
+        indices: ArrayLike,
+        axis: int | None = None,
+    ) -> Array:
+
+        a = asarray(a)
+        if axis is None:
+            return torch_take(a, asarray(indices))
+
+        indices = asarray(indices)
+
+        index_shape = (1,) * (a.ndim - 1) + (1,)
+        indices = indices.reshape(index_shape).expand(
+            *a.shape[:-1],
+            1,
+        )
+        return take_along_dim(a, indices, dim=axis).squeeze(axis)
 
 
 def get_array_shape(a: ArrayLike):
