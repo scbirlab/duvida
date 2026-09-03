@@ -335,7 +335,7 @@ def rough_finite_difference(
     >>> dnp.diag(hessian(g)(a))
     Array([38., 38.], dtype=float64)
     >>> dnp.allclose(rough_finite_difference(g)(a), dnp.array([74., 74.]))  # Less accurate when parameters interact  # doctest: +NORMALIZE_WHITESPACE
-    True
+    Array(True, dtype=bool)
     
     """
     def _approx_hessian_diagonal(
