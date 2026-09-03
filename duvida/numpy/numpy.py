@@ -1,17 +1,23 @@
 """Very rough backend-agnostic NumPy API."""
 
+from collections.abc import Iterable
+
 from ..config import config
 from ..types import Array, ArrayLike
 
 __backend__ = config.backend
 
 if config.backend == 'jax':
+    from itertools import accumulate
     from jax.numpy import (
         float64, int64, 
         allclose, 
         arange as jax_arange, 
         asarray, array, concatenate, diag, 
-        expand_dims, ones, ones_like, roll, sum, sqrt, square, take, zeros,
+        expand_dims, ones, ones_like, roll, sum, sqrt, square, stack,
+        split as jax_split,
+        take, 
+        zeros,
         zeros_like
     )
     from jax.nn import one_hot as jax_one_hot
@@ -34,6 +40,11 @@ if config.backend == 'jax':
     def one_hot(tensor: ArrayLike, num_classes: int = -1, device: str = 'cpu') -> Array:
         return dtype_like(jax_one_hot(tensor, num_classes), 1.)
 
+    def split(tensor: ArrayLike, split_size_or_sections: int | Iterable[int], axis: int = 0) -> Array:
+        split_points = list(accumulate(split_size_or_sections))
+        return jax_split(tensor, split_points, axis=axis)
+
+
 else:
     from torch import (
         float64, int64, 
@@ -44,7 +55,9 @@ else:
         concat as concatenate, 
         diag, numel, 
         ones, ones_like, 
-        roll, sum, sqrt, square, take, 
+        roll, stack, sum, sqrt, square,
+        split as torch_split,
+        take, 
         zeros, zeros_like
     )
     from torch.nn.functional import one_hot as torch_one_hot
@@ -57,7 +70,7 @@ else:
         a_copy[i] = x
         return a_copy
 
-    def unsqueeze(a: ArrayLike, axis: int) -> Array:
+    def unsqueeze(a: ArrayLike, axis: int = 0) -> Array:
         return asarray(a).unsqueeze(axis)
     
     def dtype_like(a: ArrayLike, b: ArrayLike) -> Array:
@@ -65,3 +78,10 @@ else:
 
     def one_hot(tensor: ArrayLike, num_classes: int = -1, device: str = 'cpu') -> Array:
         return dtype_like(torch_one_hot(tensor, num_classes), 1.).to(device)
+
+    def split(tensor: ArrayLike, split_size_or_sections: int | Iterable[int], axis: int = 0) -> Array:
+        return torch_split(tensor, split_size_or_sections, dim=axis)
+
+
+def get_array_shape(a: ArrayLike):
+        return tuple(int(i) for i in a.shape)

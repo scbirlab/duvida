@@ -35,7 +35,7 @@ classifiers = [
 ]
 
 dependencies = [
-  "carabiner-tools[pd,mpl]>=0.0.4",
+  "carabiner-tools>=0.0.5.post3",
   "numpy",
   "tqdm",
 ]
@@ -45,7 +45,7 @@ jax = ["jax>=0.5.3"]
 jax_cuda12 = ["jax[cuda12]>=0.5.3"]
 jax_cuda12_local = ["jax[cuda12_local]>=0.5.3"]
 torch = ["torch>=2.4"]
-dev = ["pytest>=7.4", "pytest-cov", "duvida[jax,torch]"]
+dev = ["pytest>=7.4", "pytest-cov", "duvida[torch]"]
 
 [project.urls]
 "Homepage" = "https://github.com/scbirlab/duvida"
@@ -67,4 +67,4 @@ requires = ["setuptools>=43.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [test]
-deps = ["pytest>=7.4", "pytest-cov", "duvida[jax,torch]"] 
+deps = ["pytest>=7.4", "pytest-cov", "duvida[jax]"] 

@@ -1,7 +1,8 @@
 """Generic utilities for JAX and PyTorch."""
 
-from typing import Callable, Iterable, Union
+from collections.abc import Callable, Iterable
 from functools import partial
+from itertools import accumulate
 
 from carabiner import print_err
 
@@ -10,11 +11,29 @@ from .types import Array, ArrayLike
 
 __backend__ = config.backend
 
-if config.backend == 'jax':
-    from jax import jit, jvp, grad, hessian, random, vmap
-    from jax.flatten_util import ravel_pytree
+if __backend__ == 'jax':
+    from jax import (
+        grad,
+        hessian,
+        jacrev,
+        jit,
+        jvp,
+        random,
+        vmap
+    )
+    from jax.numpy import (
+        concatenate,
+        split
+    )
+    from jax.tree_util import (
+        tree_flatten,
+        tree_unflatten,
+    )
 
-    def random_normal(seed: int, device=None) -> Callable:
+    def random_normal(
+        seed: int, 
+        device=None
+    ) -> Callable:
         """Generate a sample from the Normal distribution.
 
         Examples
@@ -33,12 +52,20 @@ if config.backend == 'jax':
                 *args, **kwargs
             )
         return _normal
+        
 
-elif config.backend == 'torch':
+elif __backend__ == 'torch':
+
     from functools import wraps
     from torch import concat as concatenate, compile, normal, zeros, Generator, split
     from torch.random import manual_seed
-    from torch.func import jvp, grad, hessian, vmap as vmap_torch
+    from torch.func import (
+        jacrev, 
+        jvp, 
+        grad, 
+        hessian, 
+        vmap as vmap_torch
+    )
     from torch.utils._pytree import tree_flatten, tree_unflatten
     from torch._dynamo import config as dynamo_config
     dynamo_config.suppress_errors = True
@@ -46,10 +73,22 @@ elif config.backend == 'torch':
 
     _COMPILE_WARNINGS = set()
 
+
+    def jacrev(
+        f: Callable, 
+        *args, **kwargs
+    ) -> Callable:
+        return jacrev_torch(
+            f,
+            chunk_size=1,
+            *args,
+            **kwargs,
+        )
+
     def vmap(
         f: Callable, 
-        in_axes: Union[int, Iterable[int]] = 0, 
-        out_axes: Union[int, Iterable[int]] = 0, 
+        in_axes: int | Iterable[int] = 0, 
+        out_axes: int | Iterable[int] = 0, 
         *args, **kwargs
     ) -> Callable:
         """Vectorizes function over axis of its arguments.
@@ -123,6 +162,7 @@ elif config.backend == 'torch':
             )
 
         return _normal
+
 
     def ravel_pytree(params):
         """Torch pytree flattener.
@@ -207,3 +247,63 @@ def get_eps():
             return as_tensor(x)
             
     return converter(finfo(converter(1.).dtype).eps)
+
+
+
+def ravel_pytree(params):
+    """Flatten a pytree while preserving leading dimensions on unravel."""
+
+    from .numpy import numpy as dnp
+
+    leaves, spec = tree_flatten(params)
+
+    sizes = [dnp.get_array_size(leaf) for leaf in leaves]
+
+    flat = dnp.concatenate([
+        leaf.reshape(-1)
+        for leaf in leaves
+    ])
+
+    def unravel(vec):
+        chunks = dnp.split(
+            vec,
+            sizes,
+            axis=-1,
+        )
+        leading_shape = dnp.get_array_shape(vec)[:-1]
+        rebuilt = [
+            chunk.reshape(
+                *leading_shape,
+                *dnp.get_array_shape(leaf),
+            )
+            for chunk, leaf
+            in zip(chunks, leaves)
+        ]
+
+        return tree_unflatten(
+            spec,
+            rebuilt,
+        )
+
+    return flat, unravel
+
+
+def ravel_arg(
+    f: Callable,
+    args,
+    argnums: int = 0,
+    kwargs=None
+):
+    """Flatten one pytree argument of a function."""
+    if kwargs is None:
+        kwargs = {}
+    args = tuple(args)
+
+    flat_arg, unravel = ravel_pytree(args[argnums])
+
+    def flat_f(flat_arg):
+        f_args = list(args)
+        f_args[argnums] = unravel(flat_arg)
+        return f(*f_args, **kwargs)
+
+    return flat_f, flat_arg, unravel

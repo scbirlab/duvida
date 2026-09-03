@@ -1,11 +1,16 @@
 """Functional transform for Hessian vector product."""
 
-from typing import Callable
+from collections.abc import Callable
 from functools import partial
 
 from .numpy import numpy as dnp
 from .types import Array, ArrayLike
-from .utils import grad, jvp
+from .utils import (
+    jacrev,
+    jvp,
+    ravel_arg,
+    ravel_pytree,
+)
 
 
 def hvp(
@@ -58,21 +63,33 @@ def hvp(
 
     """
 
-    grad_fn = partial(grad, *args, **kwargs)
+    def _hvp(
+        v: ArrayLike,
+        *f_args,
+        **f_kwargs,
+    ) -> Array:
+        flat_f, flat_arg, unravel = ravel_arg(
+            f,
+            f_args,
+            argnums=argnums,
+            kwargs=f_kwargs,
+        )
 
-    def _hvp(v: ArrayLike, *f_args, **f_kwargs) -> Array:
-        d_args = dnp.asarray(f_args[argnums])
-        pre_d_args = [arg for i, arg in enumerate(f_args) if i < argnums]
-        post_d_args = [arg for i, arg in enumerate(f_args) if i > argnums]
-        
-        def _jacobian(f_d0_args):
-            return f(
-                *pre_d_args, 
-                f_d0_args, 
-                *post_d_args, 
-                **f_kwargs,
+        flat_v, _ = ravel_pytree(v)
+        if dnp.get_array_shape(flat_v) != get_array_shape(flat_arg).shape:
+            raise ValueError(
+                "HVP vector must have the same flattened "
+                "shape as the differentiated argument."
             )
 
-        return jvp(grad_fn(_jacobian), (d_args,), (v,))[1]
+        jacobian = jacrev(flat_f)
+
+        flat_hvp = jvp(
+            jacobian,
+            (flat_arg,),
+            (flat_v,),
+        )[1]
+
+        return unravel(flat_hvp)
 
     return _hvp
