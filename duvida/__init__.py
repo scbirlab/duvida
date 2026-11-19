@@ -8,6 +8,7 @@ from .hessians import (
     bekas,
     exact_diagonal,
     get_approximators, 
+    directional_hessian_finite_difference,
     rough_finite_difference,
     squared_jacobian
 )

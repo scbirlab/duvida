@@ -80,7 +80,7 @@ Various approximations are also allowed.
 ```python
 >>> from duvida.stateless.hessians import get_approximators
 >>> get_approximators()  # Use no arguments to show what's available
-('squared_jacobian', 'exact_diagonal', 'bekas', 'rough_finite_difference')
+('squared_jacobian', 'exact_diagonal', 'bekas')
 ```
 
 Now apply:
