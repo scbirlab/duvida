@@ -104,7 +104,7 @@ def parameter_hessian_diagonal(
     >>> parameter_hessian_diagonal(f, approximator='squared_jacobian')(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 1.        ],
            [7.68724822, 1.        ]], dtype=float64)
-    >>> parameter_hessian_diagonal(f, approximator='rough_finite_difference')(p, x)  # doctest: +NORMALIZE_WHITESPACE
+    >>> parameter_hessian_diagonal(f, approximator='directional_hessian_finite_difference')(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 0.        ],
            [1.92181206, 0.        ]], dtype=float64)
     >>> parameter_hessian_diagonal(f, approximator='bekas', n=3, seed=0)(p, x)  # doctest: +NORMALIZE_WHITESPACE

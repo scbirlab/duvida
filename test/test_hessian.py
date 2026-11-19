@@ -120,7 +120,6 @@ def test_hessian_approximators_preserve_structure():
         "exact_diagonal",
         "squared_jacobian",
         "bekas",
-        "rough_finite_difference",
     ):
 
         observed = parameter_hessian_diagonal(
@@ -348,29 +347,85 @@ def test_exact_diagonal_float32_and_float64_agree():
         assert np.allclose(np.asarray(observed), expected, rtol=1e-5)
 
 
-def test_rough_finite_difference_is_a_hessian_row_sum():
-    """`rough_finite_difference` perturbs every parameter at once, so it estimates
-    H @ 1 (row sums), which equals the diagonal only when parameters don't interact.
-    This pins the documented behaviour; use `exact_diagonal` or `bekas` for a
-    diagonal that holds with interacting parameters."""
+def test_directional_finite_difference_is_a_hessian_row_sum():
+    """`directional_hessian_finite_difference` perturbs every parameter at once, so it
+    estimates H @ 1 (row sums), which equals the diagonal only when parameters
+    don't interact. Use `exact_diagonal` or `bekas` for a diagonal that holds with
+    interacting parameters."""
 
     import numpy as np
 
     import duvida.numpy as dnp
 
-    from duvida.hessians import exact_diagonal, rough_finite_difference
+    from duvida.hessians import (
+        directional_hessian_finite_difference, 
+        exact_diagonal,
+    )
 
     f = lambda p: dnp.sum(p) ** 2   # H = 2 * ones((p, p))
     params = dnp.asarray(np.array([.5, 1., 1.5, 2.], dtype=np.float64))
 
     assert np.allclose(np.asarray(exact_diagonal(f)(params)), 2.)
     assert np.allclose(
-        np.asarray(rough_finite_difference(f)(params)), 2. * 4, rtol=1e-5,
+        np.asarray(directional_hessian_finite_difference(f)(params)), 
+        2. * 4, 
+        rtol=1e-5,
     )
 
     g = lambda p: dnp.sum(p ** 3)    # diagonal Hessian: row sum == diagonal
     assert np.allclose(
-        np.asarray(rough_finite_difference(g)(params)), 
+        np.asarray(directional_hessian_finite_difference(g)(params)), 
         np.asarray(exact_diagonal(g)(params)),
         rtol=1e-5,
     )
+
+
+def test_rough_finite_difference_is_a_deprecated_alias():
+
+    import numpy as np
+    import pytest
+
+    import duvida.numpy as dnp
+
+    from duvida.hessians import (
+        directional_hessian_finite_difference,
+        rough_finite_difference,
+    )
+
+    f = lambda p: dnp.sum(p ** 3) + dnp.sum(p) ** 2
+    params = dnp.asarray(np.array([.5, 1., 1.5], dtype=np.float64))
+
+    with pytest.warns(DeprecationWarning, match="directional_hessian_finite_difference"):
+        old = rough_finite_difference(f)(params)
+
+    new = directional_hessian_finite_difference(f)(params)
+    assert np.array_equal(np.asarray(old), np.asarray(new))
+
+
+def test_row_sum_estimator_is_not_advertised_but_resolves_with_a_warning():
+
+    import numpy as np
+    import pytest
+
+    import duvida.numpy as dnp
+
+    from duvida.hessians import get_approximators
+
+    names = get_approximators()
+    assert "rough_finite_difference" not in names
+    assert "directional_hessian_finite_difference" not in names
+    assert {"exact_diagonal", "bekas"} <= set(names)
+
+    f = lambda p: dnp.sum(p ** 3)
+    params = dnp.asarray(np.array([.5, 1.], dtype=np.float64))
+
+    with pytest.warns(UserWarning, match="not the Hessian diagonal"):
+        fn = get_approximators("directional_hessian_finite_difference")
+    assert np.allclose(np.asarray(fn(f)(params)), 6. * np.array([.5, 1.]), rtol=1e-5)
+
+    with pytest.warns(UserWarning, match="not the Hessian diagonal"):
+        with pytest.warns(DeprecationWarning):
+            get_approximators("rough_finite_difference")(f)(params)
+
+    with pytest.raises(NotImplementedError):
+        get_approximators("not_a_method")

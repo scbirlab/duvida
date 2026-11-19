@@ -1,4 +1,5 @@
 """JAX transforms for Hessians diagonals and their approximations."""
+import warnings
 from typing import Any
 from collections.abc import Callable
 
@@ -59,12 +60,26 @@ def get_approximators(
         'squared_jacobian': squared_jacobian,
         'exact_diagonal': exact_diagonal,
         'bekas': bekas,
+    }
+    # Resolvable by name for backward compatibility, but not advertised: these 
+    # estimate H @ 1, which is not the Hessian diagonal when parameters interact.
+    NON_DIAGONAL = {
+        'directional_hessian_finite_difference': directional_hessian_finite_difference,
         'rough_finite_difference': rough_finite_difference,
     }
 
     if key is None:
         return tuple(APPROXIMATORS)
     elif isinstance(key, str):
+        if key in NON_DIAGONAL:
+            warnings.warn(
+                f"Approximator '{key}' estimates H @ 1 (Hessian row sums), not the "
+                "Hessian diagonal, and is wrong when parameters interact. Use "
+                "'exact_diagonal' or 'bekas' for the diagonal.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return partial(NON_DIAGONAL[key], *args, **kwargs)
         try:
             return partial(APPROXIMATORS[key], *args, **kwargs)
         except KeyError:
@@ -371,18 +386,21 @@ def bekas(
     return _approx_hessian_diagonal
 
 
-def rough_finite_difference(
+def directional_hessian_finite_difference(
     f: Callable[[Any], Array], 
     argnums: int = 0, 
     eps: float | None = None,
     *args, **kwargs
 ) -> Callable[[Any], Array]:
     
-    """Functional transform to a rough Hessian diagonal of a scalar-output function.
+    """Functional transform to a finite-difference estimate of `H @ 1`, the row sums
+    of the Hessian of a scalar-output function.
 
     This uses the usual finite-difference algorithm from `scipy.optimize.fprime()`
     to calculate the Jacobian of the autodiff gradients of `f`, but changes 
-    all values at once, instead of one-by-one. 
+    all values at once, instead of one-by-one. This is the directional derivative
+    of the gradient along the all-ones vector, and costs two gradient evaluations 
+    regardless of the number of parameters.
     
     **This is not an estimate of the Hessian diagonal in general.** Perturbing 
     every parameter at once estimates the Hessian-vector product `H @ 1`, 
@@ -408,8 +426,8 @@ def rough_finite_difference(
     -------
     Callable
         Function which takes `f`'s original arguments. Returns the 
-        rough finite-difference approximation of the diagonal of the 
-        Hessian of `f`. 
+        finite-difference estimate of `H @ 1` (equal to the diagonal of the 
+        Hessian of `f` only when parameters do not interact). 
 
     Examples
     --------
@@ -421,9 +439,9 @@ def rough_finite_difference(
     Array(22., dtype=float64)
     >>> dnp.diag(hessian(f)(a))
     Array([ 8., 14.], dtype=float64)
-    >>> rough_finite_difference(f)(a)  # Relatively accurate  # doctest: +NORMALIZE_WHITESPACE
+    >>> directional_hessian_finite_difference(f)(a)  # Relatively accurate  # doctest: +NORMALIZE_WHITESPACE
     Array([ 8.00000006, 14.        ], dtype=float64)
-    >>> rough_finite_difference(f, eps=.01)(a)
+    >>> directional_hessian_finite_difference(f, eps=.01)(a)
     Array([ 8.03, 14.03], dtype=float64)
     >>> g = lambda x: dnp.sum(dnp.sum(x) ** 3. + x ** 2. + 4.)
     >>> dnp.diag(hessian(g)(a))
@@ -449,6 +467,26 @@ def rough_finite_difference(
         return unravel(observed)
 
     return _approx_hessian_diagonal
+
+
+def rough_finite_difference(*args, **kwargs) -> Callable[[Any], Array]:
+
+    """Deprecated alias of `directional_hessian_finite_difference`.
+
+    The old name suggested a rough estimate of the Hessian diagonal, but this
+    estimates `H @ 1` (the Hessian row sums), which is the diagonal only when 
+    parameters don't interact.
+
+    """
+    warnings.warn(
+        "`rough_finite_difference` is deprecated and will be removed; it estimates "
+        "H @ 1 (Hessian row sums), not the Hessian diagonal. Use "
+        "`directional_hessian_finite_difference` if that is what you want, or "
+        "`exact_diagonal` / `bekas` for the diagonal.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return directional_hessian_finite_difference(*args, **kwargs)
 
 
 if _DEFAULT_APPROXIMATOR not in get_approximators():  # Should never happen
