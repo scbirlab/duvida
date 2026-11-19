@@ -1,6 +1,7 @@
 """Generic utilities for JAX and PyTorch."""
 
 from collections.abc import Callable, Iterable
+import os
 from functools import partial
 from itertools import accumulate
 
@@ -11,18 +12,61 @@ from .types import Array, ArrayLike
 
 __backend__ = config.backend
 
+
+def _check_chunk_size(chunk_size: int | None) -> None:
+    """Raise `ValueError` unless `chunk_size` is `None` or a positive integer."""
+    if chunk_size is not None and (
+        isinstance(chunk_size, bool) 
+        or not isinstance(chunk_size, int) 
+        or chunk_size < 1
+    ):
+        raise ValueError(
+            f"`chunk_size` must be None or a positive integer, got {chunk_size!r}."
+        )
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """Read a positive integer from the environment, raising a clear error otherwise."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(f"Environment variable {name} must be a positive integer, got {raw!r}.")
+    return value
+
+
+# Budget, in array elements, for the batch of basis vectors that exact Hessian
+# diagonals process at once (2**22 elements = 32 MB in float64). This bounds
+# the basis-vector batch only, not total memory: activations and autodiff state
+# scale with the chunk size too, and the output itself is never chunked.
+MAX_BATCH_ELEMENTS = _env_positive_int("DUVIDA_MAX_BATCH_ELEMENTS", 2 ** 22)
+
+
+def default_chunk_size(size: int, cap: int | None = None) -> int:
+    """Largest number of length-`size` vectors that fit in `MAX_BATCH_ELEMENTS`
+    (at least 1, at most `cap` if given)."""
+    chunk = max(1, MAX_BATCH_ELEMENTS // max(int(size), 1))
+    return min(chunk, cap) if cap is not None else chunk
+
+
 if __backend__ == 'jax':
     from jax import (
         grad,
         hessian,
-        jacrev,
+        jacrev as jax_jacrev,
         jit,
         jvp,
         random,
         vmap
     )
+    from jax import lax, vmap as jax_vmap
     from jax.numpy import (
         concatenate,
+        moveaxis,
         split
     )
     from jax.tree_util import (
@@ -33,6 +77,88 @@ if __backend__ == 'jax':
 
     def tree_unflatten(spec, leaves):
         return jax_tree_unflatten(spec, leaves)
+
+    def output_size(f: Callable, *args) -> int:
+        """Number of elements in the output of `f(*args)`, found by tracing 
+        shapes only (no computation)."""
+        from jax import eval_shape
+        from math import prod
+        return sum(
+            prod(leaf.shape) for leaf in tree_flatten(eval_shape(f, *args))[0]
+        )
+
+    def jacrev(f: Callable, *args, chunk_size: int | None = None, **kwargs) -> Callable:
+        """Reverse-mode Jacobian. `chunk_size` is accepted for API parity with the
+        PyTorch backend and ignored."""
+        _check_chunk_size(chunk_size)
+        return jax_jacrev(f, *args, **kwargs)
+
+    def chunked_vmap(
+        f: Callable,
+        chunk_size: int | None = None,
+        in_axes: int | Iterable[int | None] = 0,
+        out_axes: int = 0,
+    ) -> Callable:
+        """Vectorize `f` over its mapped arguments, `chunk_size` elements at a time.
+
+        This is deliberately *not* a drop-in for `jax.vmap`. It is a bounded-memory
+        map for the simple case where each entry of `in_axes` is an `int` or `None`
+        (an `int` applies to every leaf of that argument) and `out_axes` is an `int`.
+        Anything else (nested `in_axes` pytrees, `axis_name`, `spmd_axis_name`, ...)
+        is rejected with a `ValueError` rather than silently handled differently.
+        With `chunk_size=None` it is exactly `jax.vmap(f, in_axes, out_axes)`.
+
+        Chunks are processed sequentially with `jax.lax.map(..., batch_size=...)`,
+        so peak memory scales with `chunk_size` instead of the full batch.
+
+        Examples
+        ========
+        >>> import duvida.numpy as dnp
+        >>> double = lambda z: z * 2
+        >>> chunked_vmap(double, chunk_size=2)(dnp.arange(5)).tolist()
+        [0, 2, 4, 6, 8]
+
+        """
+        _check_chunk_size(chunk_size)
+        if not isinstance(out_axes, int):
+            raise ValueError(f"`out_axes` must be an int, got {out_axes!r}.")
+        if isinstance(in_axes, (tuple, list)):
+            if not all(a is None or isinstance(a, int) for a in in_axes):
+                raise ValueError(
+                    "Each `in_axes` entry must be an int or None, got "
+                    f"{in_axes!r}."
+                )
+        elif not isinstance(in_axes, int):
+            raise ValueError(f"`in_axes` must be an int or a sequence of int/None, got {in_axes!r}.")
+        if chunk_size is None:
+            return jax_vmap(f, in_axes, out_axes)
+
+        def _chunked(*f_args):
+            axes = (
+                tuple(in_axes) 
+                if isinstance(in_axes, (tuple, list)) 
+                else (in_axes,) * len(f_args)
+            )
+            if len(axes) != len(f_args):
+                raise ValueError(
+                    f"`in_axes` has {len(axes)} entries for {len(f_args)} arguments."
+                )
+            mapped = [i for i, a in enumerate(axes) if a is not None]
+            xs = tuple(
+                tree_map(lambda leaf: moveaxis(leaf, axes[i], 0), f_args[i])
+                for i in mapped
+            )
+
+            def _per_element(element):
+                call_args = list(f_args)
+                for i, e in zip(mapped, element):
+                    call_args[i] = e
+                return f(*call_args)
+
+            out = lax.map(_per_element, xs, batch_size=chunk_size)
+            return tree_map(lambda leaf: moveaxis(leaf, 0, out_axes), out)
+
+        return _chunked
 
     def random_normal(
         seed: int, 
@@ -61,7 +187,7 @@ if __backend__ == 'jax':
 elif __backend__ == 'torch':
 
     from functools import wraps
-    from torch import concat as concatenate, compile, normal, zeros, Generator, split
+    from torch import concat as concatenate, compile, randn, Generator, split
     from torch.random import manual_seed
     from torch.func import (
         jacrev as jacrev_torch, 
@@ -85,16 +211,55 @@ elif __backend__ == 'torch':
     def tree_unflatten(spec, leaves):
         return torch_tree_unflatten(leaves, spec)
 
+    def output_size(f: Callable, *args) -> int:
+        """Number of elements in the output of `f(*args)` (one evaluation 
+        without gradient tracking)."""
+        from torch import no_grad
+        with no_grad():
+            return sum(leaf.numel() for leaf in tree_flatten(f(*args))[0])
+
+    _JACREV_MAX_CHUNK_SIZE = _env_positive_int("DUVIDA_JACREV_CHUNK_SIZE", 64)
+
     def jacrev(
         f: Callable, 
-        *args, **kwargs
+        *args, 
+        chunk_size: int | None = None,
+        **kwargs
     ) -> Callable:
-        return jacrev_torch(
-            f,
-            chunk_size=1,
-            *args,
-            **kwargs,
-        )
+        """Reverse-mode Jacobian with chunked backward passes.
+
+        The backward pass for each output element is batched in chunks of 
+        `chunk_size`, which is much faster than one at a time but uses up to
+        `chunk_size` times more memory. An explicit `chunk_size` is used as given
+        and is *not* limited by the memory budget (`DUVIDA_MAX_BATCH_ELEMENTS`); only 
+        the automatic choice is. If `chunk_size` is `None` it is chosen 
+        per call as `min(64, MAX_BATCH_ELEMENTS // p)` where `p` is the size of 
+        the differentiated argument (64 can be changed with the 
+        `DUVIDA_JACREV_CHUNK_SIZE` environment variable), so large parameter 
+        sets automatically get smaller chunks.
+        """
+        _check_chunk_size(chunk_size)
+        argnums = kwargs.get("argnums", args[0] if args else 0)
+
+        def _jacobian(*f_args, **f_kwargs):
+            chunk = chunk_size
+            if chunk is None:
+                selected = (
+                    [f_args[i] for i in argnums] 
+                    if isinstance(argnums, (tuple, list)) 
+                    else [f_args[argnums]]
+                )
+                size = sum(
+                    leaf.numel() 
+                    for arg in selected 
+                    for leaf in tree_flatten(arg)[0]
+                )
+                chunk = default_chunk_size(size, cap=_JACREV_MAX_CHUNK_SIZE)
+            return jacrev_torch(
+                f, *args, chunk_size=chunk, **kwargs,
+            )(*f_args, **f_kwargs)
+
+        return _jacobian
 
     def vmap(
         f: Callable, 
@@ -118,6 +283,34 @@ elif __backend__ == 'torch':
             out_dims=out_axes, 
             randomness='different',
             *args, **kwargs
+        )
+
+
+    def chunked_vmap(
+        f: Callable, 
+        chunk_size: int | None = None,
+        in_axes: int | Iterable[int | None] = 0, 
+        out_axes: int = 0, 
+    ) -> Callable:
+        """Vectorizes function over axis of its arguments, `chunk_size` elements 
+        at a time, so peak memory scales with `chunk_size` instead of the full batch.
+        With `chunk_size=None` the whole batch is processed at once.
+
+        Examples
+        ========
+        >>> import duvida.numpy as dnp
+        >>> double = lambda z: z * 2
+        >>> chunked_vmap(double, chunk_size=2)(dnp.arange(5)).tolist()
+        [0, 2, 4, 6, 8]
+
+        """
+        _check_chunk_size(chunk_size)
+        return vmap_torch(
+            f, 
+            in_dims=in_axes, 
+            out_dims=out_axes, 
+            randomness='different',
+            chunk_size=chunk_size,
         )
         
 
@@ -164,11 +357,12 @@ elif __backend__ == 'torch':
         generator = Generator(device=device)
         generator.manual_seed(seed)
 
-        def _normal(shape, *args, **kwargs):
-            return normal(
-                generator=generator, 
-                mean=zeros(shape, device=device), 
-                std=1.,
+        def _normal(shape, dtype=None, *args, **kwargs):
+            return randn(
+                *shape,
+                generator=generator,
+                device=device,
+                dtype=dtype,
                 *args, **kwargs
             )
 
@@ -242,9 +436,9 @@ def reciprocal(f: Callable[[ArrayLike], Array]) -> Callable[[ArrayLike], Array]:
     return _inverted
 
 
-def get_eps():
+def get_eps(dtype=None):
 
-    """Get machine precision.
+    """Get machine precision, for `dtype` if given or else the backend's default float.
     
     """
     
@@ -260,7 +454,9 @@ def get_eps():
         def converter(x): 
             return as_tensor(x)
             
-    return converter(finfo(converter(1.).dtype).eps)
+    if dtype is None:
+        dtype = converter(1.).dtype
+    return converter(finfo(dtype).eps)
 
 
 

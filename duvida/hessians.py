@@ -4,9 +4,14 @@ from collections.abc import Callable
 
 from functools import partial
 
+from .config import config
 from .hvp import hvp
 from .types import Approximator, Array
 from .utils import (
+    _check_chunk_size,
+    chunked_vmap,
+    default_chunk_size,
+    output_size,
     jacrev,
     jvp,
     grad,
@@ -21,6 +26,7 @@ from .numpy import numpy as dnp
 
 _EPS = get_eps() ** .5
 _DEFAULT_APPROXIMATOR = 'exact_diagonal'
+_DIAGONAL_METHODS = ('auto', 'forward', 'hvp')
 
 
 def get_approximators(
@@ -130,7 +136,10 @@ def exact_diagonal(
     f: Callable[[Any], Array], 
     argnums: int = 0,
     device: str = 'cpu',
-    *args, **kwargs
+    *args, 
+    chunk_size: int | None = None,
+    method: str = 'auto',
+    **kwargs
 ) -> Callable[[Any], Array]:
 
     """Functional transform to the Hessian diagonal of a scalar-output function.
@@ -144,12 +153,37 @@ def exact_diagonal(
         Function with scalar-output to transform.
     argnums : int, optional
         Which argument number to take the second derivative for. Default: 0.
+    chunk_size : int, optional
+        Number of parameters (basis vectors) to process at once; must be 
+        positive. Smaller values use less memory but run more sequentially. 
+        Default: as many as fit in a budget of `DUVIDA_MAX_BATCH_ELEMENTS` 
+        (default 2**22) basis-vector elements. Note this bounds the *basis-vector
+        batch*, not total memory: activations and autodiff state also scale with 
+        the chunk size, and the returned diagonal (one value per output element 
+        per parameter) is allocated in full regardless.
+    method : str, optional
+        "forward" for nested forward-mode second directional derivatives, 
+        "hvp" for Hessian-vector products, or "auto". Default: "auto", which 
+        uses "forward" for functions with more than one output element (3-24x 
+        faster in benchmarks on both backends) and for scalar outputs on JAX 
+        (as fast or faster), but "hvp" for scalar outputs on PyTorch, where it 
+        is 1.4-3x faster for losses over tens of data points or more (the typical 
+        case for Fisher information; "forward" is faster for a very cheap scalar 
+        function). See `benchmarks/` to measure your own workload.
     
     Returns
     -------
     Callable
         Function which takes `f`'s original arguments. Returns the 
         diagonal of the Hessian of `f`. 
+
+    Notes
+    -----
+    With `method="forward"`, each diagonal element is the second directional
+    derivative of `f` along a basis vector, calculated by nesting two 
+    forward-mode passes. Unlike a Hessian-vector product this needs no 
+    reverse-mode pass per output element, which is far faster for 
+    vector-output `f` such as a model evaluated on many data points.
 
     Examples
     --------
@@ -164,33 +198,87 @@ def exact_diagonal(
     Array([ True,  True], dtype=bool)
     
     """
+    if method not in _DIAGONAL_METHODS:
+        raise ValueError(
+            f"Unknown method '{method}'. Choose from {', '.join(_DIAGONAL_METHODS)}."
+        )
+    _check_chunk_size(chunk_size)
     hvp_f = hvp(f, argnums=argnums, *args, **kwargs)
 
-    def get_hessian_element(
-        i: int, 
-        size: int, 
-        *f_args, **f_kwargs
-    ) -> float:
-        params = f_args[argnums]
-        _, unravel = ravel_pytree(params)
-        unit_vec = unravel(dnp.one_hot(i, size, device=device))
-        r = hvp_f(unit_vec, *f_args, **f_kwargs)
-        flat_r = ravel_pytree_like(r, params)
-        return dnp.take(flat_r, i, axis=-1)
+    def _diagonal_forward(flat_f, flat_arg, unravel) -> Array:
+        size = dnp.get_array_size(flat_arg)
+        chunk = default_chunk_size(size) if chunk_size is None else chunk_size
+        chunk = None if chunk >= size else chunk  # single batch: skip chunking machinery
 
-    def _hessian_diagonal(*f_args, **f_kwargs) -> Array:
-        params = f_args[argnums]
-        flat_params, unravel = ravel_pytree(params)
+        def _second_derivative(i):
+            v = dnp.dtype_like(
+                dnp.one_hot(i, size, device=device), 
+                flat_arg,
+            )
+            def _first_derivative(a):
+                return jvp(flat_f, (a,), (v,))[1]
+            return jvp(_first_derivative, (flat_arg,), (v,))[1]
 
-        d_args_size = dnp.get_array_size(flat_params)
-        v_hvp_f = vmap(
-            get_hessian_element, 
-            in_axes=(0, None) + (None, ) * len(f_args),
+        v_second_derivative = chunked_vmap(
+            _second_derivative, 
+            chunk_size=chunk,
+            in_axes=0,
             out_axes=-1,
         )
-        idx = dnp.arange(d_args_size, device=device)
-        hessian_diag = v_hvp_f(idx, d_args_size, *f_args, **f_kwargs)
-        return unravel(hessian_diag)
+        idx = dnp.arange(size, device=device)
+        return unravel(v_second_derivative(idx))
+
+    def _diagonal_hvp(f_args, f_kwargs, flat_arg, n_outputs) -> Array:
+        params = f_args[argnums]
+        _, unravel = ravel_pytree(params)
+        size = dnp.get_array_size(flat_arg)
+        # Each basis vector here holds a (n_outputs, p) block of Hessian-vector 
+        # products, so the budget is divided by the number of outputs too.
+        chunk = (
+            default_chunk_size(size * n_outputs) 
+            if chunk_size is None else chunk_size
+        )
+        chunk = None if chunk >= size else chunk  # single batch: skip chunking machinery
+
+        def get_hessian_element(i: int) -> float:
+            unit_vec = unravel(dnp.dtype_like(
+                dnp.one_hot(i, size, device=device), 
+                flat_arg,
+            ))
+            r = hvp_f(unit_vec, *f_args, **f_kwargs)
+            flat_r = ravel_pytree_like(r, params)
+            return dnp.take(flat_r, i, axis=-1)
+
+        v_hvp_f = chunked_vmap(
+            get_hessian_element, 
+            chunk_size=chunk,
+            in_axes=0,
+            out_axes=-1,
+        )
+        idx = dnp.arange(size, device=device)
+        return unravel(v_hvp_f(idx))
+
+    def _hessian_diagonal(*f_args, **f_kwargs) -> Array:
+        flat_f, flat_arg, unravel = ravel_arg(
+            f,
+            f_args,
+            argnums=argnums,
+            kwargs=f_kwargs,
+        )
+        n_outputs = (
+            1 if method == 'forward' 
+            else output_size(flat_f, flat_arg)  # shape-only (JAX) or one cheap evaluation
+        )
+        use_forward = (
+            method == 'forward' 
+            or (
+                method == 'auto' 
+                and (n_outputs > 1 or config.backend == 'jax')
+            )
+        )
+        if use_forward:
+            return _diagonal_forward(flat_f, flat_arg, unravel)
+        return _diagonal_hvp(f_args, f_kwargs, flat_arg, n_outputs)
 
     return _hessian_diagonal
 
@@ -276,7 +364,7 @@ def bekas(
             in_axes=(1, ) + (None, ) * len(f_args), 
             out_axes=-1,
         )
-        v = random_normal_fn(shape=(d_args_size, n))  # p, n  # TODO: Don't instantiate all at once - risk of memory blow-up
+        v = random_normal_fn(shape=(d_args_size, n), dtype=flat_params.dtype)  # p, n  # TODO: Don't instantiate all at once - risk of memory blow-up
         samples = v * v_hvp_f(v, *f_args, **f_kwargs)   # p, n
         return unravel(dnp.sum(samples, axis=-1) / dnp.sum(dnp.square(v), axis=-1))
 
@@ -286,7 +374,7 @@ def bekas(
 def rough_finite_difference(
     f: Callable[[Any], Array], 
     argnums: int = 0, 
-    eps: float = _EPS,
+    eps: float | None = None,
     *args, **kwargs
 ) -> Callable[[Any], Array]:
     
@@ -296,8 +384,12 @@ def rough_finite_difference(
     to calculate the Jacobian of the autodiff gradients of `f`, but changes 
     all values at once, instead of one-by-one. 
     
-    This will work best when parameters don't have strong interactions with
-    each other becuase it's essentially a column sum of the Hessian matrix.
+    **This is not an estimate of the Hessian diagonal in general.** Perturbing 
+    every parameter at once estimates the Hessian-vector product `H @ 1`, 
+    i.e. the row sums of the Hessian, which equals the diagonal only when 
+    parameters don't interact (for example `f(x) = (sum(x)) ** 2` has a diagonal
+    of 2 but returns `2 * len(x)`). Use `exact_diagonal` or `bekas` when 
+    parameters interact.
     
     Additional aguments are passed to `grad()`. Set `argnums` to
     differentiate `f` with respect to parameters other than the first.
@@ -309,7 +401,8 @@ def rough_finite_difference(
     argnums : int, optional
         Which argument number to take the second derivative for. Default: 0.
     eps : float, optional
-        The small number to add to prevent instability.
+        The small number to add to prevent instability. Default: square root 
+        of machine precision of the parameters' dtype.
     
     Returns
     -------
@@ -350,8 +443,9 @@ def rough_finite_difference(
             argnums=argnums,
             kwargs=f_kwargs,
         )
+        step = eps if eps is not None else get_eps(flat_arg.dtype) ** .5
         jacobian = jacrev(flat_f)
-        observed = (jacobian(flat_arg + eps) - jacobian(flat_arg)) / eps
+        observed = (jacobian(flat_arg + step) - jacobian(flat_arg)) / step
         return unravel(observed)
 
     return _approx_hessian_diagonal
