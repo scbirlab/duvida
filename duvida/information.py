@@ -11,7 +11,8 @@ from .utils import reciprocal, grad, jacrev, jit, tree_map, vmap
 
 
 def parameter_gradient(
-    model: StatelessModel
+    model: StatelessModel,
+    chunk_size: int | None = None,
 ) -> Callable[[ArrayLike, ArrayLike], Array]:
 
     """Gradient of a scalar function with respect to its parameters for each 
@@ -26,6 +27,11 @@ def parameter_gradient(
     model : Callable
         Function to calcuate the gradient of with respect to the parameters
         in its second argument.
+    chunk_size : int, optional
+        For PyTorch backend. How many output elements to backpropagate through
+        at once. Default: chosen automatically from the parameter count and the
+        memory budget. An explicit value is used as given and bypasses that 
+        budget, so large values can use a lot of memory.
 
     Returns
     -------
@@ -51,7 +57,7 @@ def parameter_gradient(
     ) -> Array:
         def _model(params):
             return model(x, *params)
-        return jacrev(_model)(params)
+        return jacrev(_model, chunk_size=chunk_size)(params)
 
     return _parameter_gradient
 
@@ -98,7 +104,7 @@ def parameter_hessian_diagonal(
     >>> parameter_hessian_diagonal(f, approximator='squared_jacobian')(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 1.        ],
            [7.68724822, 1.        ]], dtype=float64)
-    >>> parameter_hessian_diagonal(f, approximator='rough_finite_difference')(p, x)  # doctest: +NORMALIZE_WHITESPACE
+    >>> parameter_hessian_diagonal(f, approximator='directional_hessian_finite_difference')(p, x)  # doctest: +NORMALIZE_WHITESPACE
     Array([[0.        , 0.        ],
            [1.92181206, 0.        ]], dtype=float64)
     >>> parameter_hessian_diagonal(f, approximator='bekas', n=3, seed=0)(p, x)  # doctest: +NORMALIZE_WHITESPACE
@@ -449,13 +455,23 @@ def information_sensitivity(
 
     """
 
-    term1_fn, term2_fn = (
-        f(model, loss, approximator, *args, **kwargs) 
-        for f in (
-            _information_sensitivity_term1, 
-            _information_sensitivity_term2,
-        )
+    fisher_score_fn = fisher_score(model, loss)
+    fisher_info_fn = fisher_information_diagonal(
+        model, loss, approximator, 
+        *args, **kwargs,
     )
+    param_grad_fn = parameter_gradient(model)
+    param_hessian_fn = parameter_hessian_diagonal(
+        model, approximator, 
+        *args, 
+        **kwargs,
+    )
+
+    def _mapping_fn(information, score, hessian, gradient):
+        # Same arithmetic as `_information_sensitivity_term1(...) - 
+        # _information_sensitivity_term2(...)` so results are bit-identical 
+        # to evaluating the two terms separately.
+        return information / gradient - score * hessian / dnp.square(gradient)
 
     def _information_sensitivity(
         params: ArrayLike, 
@@ -463,10 +479,14 @@ def information_sensitivity(
         x_true: ArrayLike, 
         y_true: ArrayLike
     ) -> Array:
+        # The parameter gradient is the most expensive shared quantity, so
+        # evaluate it once rather than once per term.
         return tree_map(
-            operator.sub,
-            term1_fn(params, x, x_true, y_true),
-            term2_fn(params, x, x_true, y_true),
+            _mapping_fn,
+            fisher_info_fn(params, x_true, y_true),
+            fisher_score_fn(params, x_true, y_true),
+            param_hessian_fn(params, x),
+            param_grad_fn(params, x),
         )
 
     if use_reciprocal:
